@@ -300,22 +300,40 @@ fn rollback_update_impl(state: &AppState) -> Result<UpdateActionResult, String> 
 }
 
 fn supports_self_update(state: &AppState) -> bool {
-    if !cfg!(target_os = "linux") {
-        return false;
-    }
-    if read_env_trim("CODEXMANAGER_WEB_NO_SPAWN_SERVICE").is_some() {
-        return false;
-    }
-    if !*state.spawned_service.blocking_lock() {
-        return false;
-    }
     let Ok(exe) = std::env::current_exe() else {
         return false;
     };
     let Some(dir) = exe.parent() else {
         return false;
     };
-    dir.join(service_binary_name()).is_file()
+    let has_service_binary = dir.join(service_binary_name()).is_file();
+    let spawned_service = *state.spawned_service.blocking_lock();
+    can_self_update_runtime(
+        cfg!(target_os = "linux"),
+        read_env_trim("CODEXMANAGER_WEB_NO_SPAWN_SERVICE").is_some(),
+        read_env_trim("CODEXMANAGER_SINGLE_CONTAINER").is_some(),
+        spawned_service,
+        has_service_binary,
+    )
+}
+
+fn can_self_update_runtime(
+    is_linux: bool,
+    no_spawn_service: bool,
+    single_container_mode: bool,
+    spawned_service: bool,
+    has_service_binary: bool,
+) -> bool {
+    if !is_linux || !has_service_binary {
+        return false;
+    }
+    if single_container_mode {
+        return true;
+    }
+    if no_spawn_service {
+        return false;
+    }
+    spawned_service
 }
 
 fn has_backup_files() -> Result<bool, String> {
@@ -598,7 +616,10 @@ fn io_copy(reader: &mut dyn Read, writer: &mut dyn Write) -> Result<(), String> 
 
 #[cfg(test)]
 mod tests {
-    use super::{compare_versions, normalize_version, parse_version, validate_download_url};
+    use super::{
+        can_self_update_runtime, compare_versions, normalize_version, parse_version,
+        validate_download_url,
+    };
 
     #[test]
     fn compare_versions_orders_semver_like_values() {
@@ -622,5 +643,13 @@ mod tests {
         );
         assert!(validate_download_url("http://github.com/demo").is_err());
         assert!(validate_download_url("https://example.com/demo").is_err());
+    }
+
+    #[test]
+    fn can_self_update_runtime_accepts_supervised_single_container_mode() {
+        assert!(can_self_update_runtime(true, true, true, false, true));
+        assert!(!can_self_update_runtime(true, false, false, false, true));
+        assert!(!can_self_update_runtime(false, false, true, false, true));
+        assert!(!can_self_update_runtime(true, false, true, false, false));
     }
 }
