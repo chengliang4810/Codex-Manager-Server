@@ -49,14 +49,9 @@ services:
     image: ghcr.io/chengliang4810/codexmanager-service:latest
     restart: unless-stopped
     environment:
-      CODEXMANAGER_SERVICE_ADDR: 0.0.0.0:48760
-      CODEXMANAGER_DB_PATH: /data/codexmanager.db
-      CODEXMANAGER_RPC_TOKEN_FILE: /data/codexmanager.rpc-token
       CODEXMANAGER_WEB_ACCESS_PASSWORD: admin123 # 首次访问密码，部署后可在页面修改
     volumes:
       - ./data:/data # 持久化数据库和 RPC token 到当前目录 ./data
-    ports:
-      - "48760:48760" # Service / 网关端口
 
   codexmanager-web:
     image: ghcr.io/chengliang4810/codexmanager-web:latest
@@ -64,18 +59,10 @@ services:
     depends_on:
       codexmanager-service:
         condition: service_healthy
-    environment:
-      CODEXMANAGER_WEB_ADDR: 0.0.0.0:48761
-      CODEXMANAGER_WEB_NO_SPAWN_SERVICE: "1"
-      CODEXMANAGER_SERVICE_ADDR: codexmanager-service:48760
-      CODEXMANAGER_DB_PATH: /data/codexmanager.db
-      CODEXMANAGER_RPC_TOKEN_FILE: /data/codexmanager.rpc-token
-      CODEXMANAGER_WEB_NO_OPEN: "1"
-      CODEXMANAGER_WEB_ACCESS_PASSWORD: admin123 # 与 service 保持一致
     volumes:
       - ./data:/data # 与 service 共用当前目录 ./data
     ports:
-      - "48761:48761" # Web 管理页端口
+      - "48761:48761" # Web 管理页与对外 /v1 入口
 ```
 
 启动命令：
@@ -99,11 +86,7 @@ docker run -d \
   --name codexmanager-service \
   --network codexmanager-net \
   --network-alias codexmanager-service \
-  -p 48760:48760 \  # 对外暴露网关 / RPC 端口
   -v "$(pwd)/data:/data" \  # 持久化数据库与 RPC token 到当前目录 ./data
-  -e CODEXMANAGER_SERVICE_ADDR=0.0.0.0:48760 \  # 容器内监听地址
-  -e CODEXMANAGER_DB_PATH=/data/codexmanager.db \  # SQLite 数据库路径
-  -e CODEXMANAGER_RPC_TOKEN_FILE=/data/codexmanager.rpc-token \  # RPC token 文件路径
   -e CODEXMANAGER_WEB_ACCESS_PASSWORD=admin123 \  # 首次访问密码
   ghcr.io/chengliang4810/codexmanager-service:latest
 
@@ -111,21 +94,29 @@ docker run -d \
 docker run -d \
   --name codexmanager-web \
   --network codexmanager-net \
-  -p 48761:48761 \  # 对外暴露 Web 管理页
+  -p 48761:48761 \  # 对外暴露 Web 管理页与 /v1 入口
   -v "$(pwd)/data:/data" \  # 与 service 共用当前目录 ./data
-  -e CODEXMANAGER_WEB_ADDR=0.0.0.0:48761 \  # Web UI 监听地址
-  -e CODEXMANAGER_WEB_NO_SPAWN_SERVICE=1 \  # Docker 内禁止 web 自动拉起 service
-  -e CODEXMANAGER_WEB_NO_OPEN=1 \  # 容器内禁止尝试打开浏览器
-  -e CODEXMANAGER_SERVICE_ADDR=codexmanager-service:48760 \  # 通过容器服务名连接 service
-  -e CODEXMANAGER_DB_PATH=/data/codexmanager.db \  # 与 service 共用数据库
-  -e CODEXMANAGER_RPC_TOKEN_FILE=/data/codexmanager.rpc-token \  # 与 service 共用 RPC token
-  -e CODEXMANAGER_WEB_ACCESS_PASSWORD=admin123 \  # 与 service 保持一致
   ghcr.io/chengliang4810/codexmanager-web:latest
 ```
+
+说明：
+
+- 这两个镜像已经内置下面这些默认值，所以部署时不用再手动写：
+  - `CODEXMANAGER_SERVICE_ADDR=0.0.0.0:48760`
+  - `CODEXMANAGER_WEB_ADDR=0.0.0.0:48761`
+  - `CODEXMANAGER_SERVICE_ADDR=codexmanager-service:48760`（web 镜像内默认）
+  - `CODEXMANAGER_DB_PATH=/data/codexmanager.db`
+  - `CODEXMANAGER_RPC_TOKEN_FILE=/data/codexmanager.rpc-token`
+  - `CODEXMANAGER_WEB_NO_SPAWN_SERVICE=1`
+  - `CODEXMANAGER_WEB_NO_OPEN=1`
+- 真正建议用户显式配置的只有访问密码等个性化项
+- 对外通常只需要暴露 `48761`
+- `48760` 是内部 service 端口，默认留在容器网络内，由 `codexmanager-web` 反代 `/api/rpc`、`/v1/*`、`/health`、`/metrics`
 
 浏览器访问：
 
 - `http://localhost:48761/`
+- `http://localhost:48761/v1/...`
 
 ## Linux 二进制部署
 
