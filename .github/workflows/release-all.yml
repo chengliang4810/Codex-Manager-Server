@@ -216,13 +216,15 @@ jobs:
           docker_stage="${release_dir}/docker-release"
 
           rm -rf "$docker_stage"
-          mkdir -p "$docker_stage"
+          mkdir -p "$docker_stage/docker"
 
           cp docker/Dockerfile.service.release "$docker_stage/Dockerfile.service"
           cp docker/Dockerfile.web.release "$docker_stage/Dockerfile.web"
+          cp docker/entrypoint.sh "$docker_stage/docker/entrypoint.sh"
           cp "${release_dir}/codexmanager-service" "$docker_stage/codexmanager-service"
           cp "${release_dir}/codexmanager-web" "$docker_stage/codexmanager-web"
           chmod +x "$docker_stage"/codexmanager-*
+          chmod +x "$docker_stage"/docker/entrypoint.sh
 
           docker build \
             -f "$docker_stage/Dockerfile.service" \
