@@ -41,25 +41,55 @@
 
 ### 方式 1：Docker Compose
 
-推荐直接使用 Release 附带的 `docker-compose.release.yml`。
+直接在当前目录创建一个 `docker-compose.yml`，内容如下：
 
-```bash
-# 下载最新 release 附带的 compose 文件
-curl -L -o docker-compose.release.yml \
-  https://github.com/chengliang4810/Codex-Manager-Server/releases/latest/download/docker-compose.release.yml
+```yaml
+services:
+  codexmanager-service:
+    image: ghcr.io/chengliang4810/codexmanager-service:latest
+    restart: unless-stopped
+    environment:
+      CODEXMANAGER_SERVICE_ADDR: 0.0.0.0:48760
+      CODEXMANAGER_DB_PATH: /data/codexmanager.db
+      CODEXMANAGER_RPC_TOKEN_FILE: /data/codexmanager.rpc-token
+      CODEXMANAGER_WEB_ACCESS_PASSWORD: admin123 # 首次访问密码，部署后可在页面修改
+    volumes:
+      - ./data:/data # 持久化数据库和 RPC token 到当前目录 ./data
+    ports:
+      - "48760:48760" # Service / 网关端口
 
-# 指定要部署的精确版本；请替换成真实 release tag，例如 v0.2.5
-CODEXMANAGER_RELEASE_TAG=v0.2.5 \
-docker compose -f docker-compose.release.yml up -d
+  codexmanager-web:
+    image: ghcr.io/chengliang4810/codexmanager-web:latest
+    restart: unless-stopped
+    depends_on:
+      codexmanager-service:
+        condition: service_healthy
+    environment:
+      CODEXMANAGER_WEB_ADDR: 0.0.0.0:48761
+      CODEXMANAGER_WEB_NO_SPAWN_SERVICE: "1"
+      CODEXMANAGER_SERVICE_ADDR: codexmanager-service:48760
+      CODEXMANAGER_DB_PATH: /data/codexmanager.db
+      CODEXMANAGER_RPC_TOKEN_FILE: /data/codexmanager.rpc-token
+      CODEXMANAGER_WEB_NO_OPEN: "1"
+      CODEXMANAGER_WEB_ACCESS_PASSWORD: admin123 # 与 service 保持一致
+    volumes:
+      - ./data:/data # 与 service 共用当前目录 ./data
+    ports:
+      - "48761:48761" # Web 管理页端口
 ```
 
-如果只想快速体验最新镜像，可把 compose 文件里的 `${CODEXMANAGER_RELEASE_TAG}` 替换成 `latest`，或者直接使用下方 `docker run` 方式。
+启动命令：
+
+```bash
+mkdir -p ./data
+docker compose up -d
+```
 
 ### 方式 2：Docker 直接运行
 
 ```bash
-# 先创建共享数据卷；service 与 web 都会读写这个卷
-docker volume create codexmanager-data
+# 在当前目录准备持久化目录
+mkdir -p ./data
 
 # 创建内部网络，供 web 通过容器服务名访问 service
 docker network create codexmanager-net
@@ -70,10 +100,11 @@ docker run -d \
   --network codexmanager-net \
   --network-alias codexmanager-service \
   -p 48760:48760 \  # 对外暴露网关 / RPC 端口
-  -v codexmanager-data:/data \  # 持久化数据库与 RPC token 文件
+  -v "$(pwd)/data:/data" \  # 持久化数据库与 RPC token 到当前目录 ./data
   -e CODEXMANAGER_SERVICE_ADDR=0.0.0.0:48760 \  # 容器内监听地址
   -e CODEXMANAGER_DB_PATH=/data/codexmanager.db \  # SQLite 数据库路径
   -e CODEXMANAGER_RPC_TOKEN_FILE=/data/codexmanager.rpc-token \  # RPC token 文件路径
+  -e CODEXMANAGER_WEB_ACCESS_PASSWORD=admin123 \  # 首次访问密码
   ghcr.io/chengliang4810/codexmanager-service:latest
 
 # 启动 web
@@ -81,13 +112,14 @@ docker run -d \
   --name codexmanager-web \
   --network codexmanager-net \
   -p 48761:48761 \  # 对外暴露 Web 管理页
-  -v codexmanager-data:/data \  # 与 service 共享同一数据卷
+  -v "$(pwd)/data:/data" \  # 与 service 共用当前目录 ./data
   -e CODEXMANAGER_WEB_ADDR=0.0.0.0:48761 \  # Web UI 监听地址
   -e CODEXMANAGER_WEB_NO_SPAWN_SERVICE=1 \  # Docker 内禁止 web 自动拉起 service
   -e CODEXMANAGER_WEB_NO_OPEN=1 \  # 容器内禁止尝试打开浏览器
   -e CODEXMANAGER_SERVICE_ADDR=codexmanager-service:48760 \  # 通过容器服务名连接 service
   -e CODEXMANAGER_DB_PATH=/data/codexmanager.db \  # 与 service 共用数据库
   -e CODEXMANAGER_RPC_TOKEN_FILE=/data/codexmanager.rpc-token \  # 与 service 共用 RPC token
+  -e CODEXMANAGER_WEB_ACCESS_PASSWORD=admin123 \  # 与 service 保持一致
   ghcr.io/chengliang4810/codexmanager-web:latest
 ```
 

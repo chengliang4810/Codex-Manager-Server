@@ -15,7 +15,7 @@ services:
       CODEXMANAGER_RPC_TOKEN_FILE: /data/codexmanager.rpc-token
       CODEXMANAGER_WEB_ACCESS_PASSWORD: ${CODEXMANAGER_WEB_ACCESS_PASSWORD:-admin123}
     volumes:
-      - codexmanager-data:/data
+      - ../data:/data
     ports:
       - "48760:48760"
 
@@ -41,9 +41,6 @@ services:
       CODEXMANAGER_WEB_NO_OPEN: "1"
       CODEXMANAGER_WEB_ACCESS_PASSWORD: ${CODEXMANAGER_WEB_ACCESS_PASSWORD:-admin123}
     volumes:
-      - codexmanager-data:/data
+      - ../data:/data
     ports:
       - "48761:48761"
-
-volumes:
-  codexmanager-data:
