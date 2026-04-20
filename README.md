@@ -19,19 +19,27 @@
 
 - 仅保留 `codexmanager-service` 与 `codexmanager-web`
 - 不再提供 Tauri 桌面端安装包、托盘、自更新链路
-- 以 Docker / Docker Compose 为主部署面
+- 以 Docker / Docker Compose 为主部署面，默认推荐单容器镜像
 - `main` 分支每次推送自动生成新的 GitHub Release、GHCR 镜像和 Linux 二进制包
 
 ## 当前交付物
 
+- `codexmanager`
+  - 推荐部署镜像
+  - 单容器内同时包含 `codexmanager-web` 与 `codexmanager-service`
+  - 适合 Docker 场景下的页面内在线升级
 - `codexmanager-service`
   - OpenAI 兼容网关、管理 RPC、数据存储
+  - 保留为兼容性的拆分部署镜像
 - `codexmanager-web`
   - 浏览器管理界面
   - `/api/runtime` 与 `/api/rpc` 代理
+  - 保留为兼容性的拆分部署镜像
 - `codexmanager-start`
   - Linux 二进制便捷启动器
 - GHCR 镜像
+  - `ghcr.io/chengliang4810/codexmanager:vX.Y.Z`
+  - `ghcr.io/chengliang4810/codexmanager:latest`
   - `ghcr.io/chengliang4810/codexmanager-service:vX.Y.Z`
   - `ghcr.io/chengliang4810/codexmanager-service:latest`
   - `ghcr.io/chengliang4810/codexmanager-web:vX.Y.Z`
@@ -39,28 +47,19 @@
 
 ## 快速部署
 
-### 方式 1：Docker Compose
+### 方式 1：Docker Compose（推荐，单容器）
 
 直接在当前目录创建一个 `docker-compose.yml`，内容如下：
 
 ```yaml
 services:
-  codexmanager-service:
-    image: ghcr.io/chengliang4810/codexmanager-service:latest
+  codexmanager:
+    image: ghcr.io/chengliang4810/codexmanager:latest
     restart: unless-stopped
     environment:
       CODEXMANAGER_WEB_ACCESS_PASSWORD: admin123 # 首次访问密码，部署后可在页面修改
     volumes:
       - ./data:/data # 持久化数据库和 RPC token 到当前目录 ./data
-
-  codexmanager-web:
-    image: ghcr.io/chengliang4810/codexmanager-web:latest
-    restart: unless-stopped
-    depends_on:
-      codexmanager-service:
-        condition: service_healthy
-    volumes:
-      - ./data:/data # 与 service 共用当前目录 ./data
     ports:
       - "48761:48761" # Web 管理页与对外 /v1 入口
 ```
@@ -72,46 +71,50 @@ mkdir -p ./data
 docker compose up -d
 ```
 
-### 方式 2：Docker 直接运行
-
-```bash
-# 在当前目录准备持久化目录
-mkdir -p ./data
-
-# 创建内部网络，供 web 通过容器服务名访问 service
-docker network create codexmanager-net
-
-# 启动 service
-docker run -d \
-  --name codexmanager-service \
-  --network codexmanager-net \
-  --network-alias codexmanager-service \
-  -v "$(pwd)/data:/data" \  # 持久化数据库与 RPC token 到当前目录 ./data
-  -e CODEXMANAGER_WEB_ACCESS_PASSWORD=admin123 \  # 首次访问密码
-  ghcr.io/chengliang4810/codexmanager-service:latest
-
-# 启动 web
-docker run -d \
-  --name codexmanager-web \
-  --network codexmanager-net \
-  -p 48761:48761 \  # 对外暴露 Web 管理页与 /v1 入口
-  -v "$(pwd)/data:/data" \  # 与 service 共用当前目录 ./data
-  ghcr.io/chengliang4810/codexmanager-web:latest
-```
-
 说明：
 
-- 这两个镜像已经内置下面这些默认值，所以部署时不用再手动写：
+- 单容器镜像内部会以 `codexmanager-web` 作为主进程，并自动拉起同镜像内的 `codexmanager-service`
+- 对外通常只需要暴露 `48761`
+- `./data` 会持久化数据库、RPC token 等运行数据
+- 如果要使用页面内在线升级，请保留 `restart: unless-stopped`
+
+### 方式 2：Docker 直接运行（推荐，单容器）
+
+```bash
+mkdir -p ./data
+
+docker run -d \
+  --name codexmanager \
+  --restart unless-stopped \
+  -p 48761:48761 \
+  -v "$(pwd)/data:/data" \
+  -e CODEXMANAGER_WEB_ACCESS_PASSWORD=admin123 \
+  ghcr.io/chengliang4810/codexmanager:latest
+```
+
+### 方式 3：双容器兼容部署（可选）
+
+如果你明确需要拆分 `service` / `web` 两个容器，仍然可以继续使用下面两类镜像：
+
+- `ghcr.io/chengliang4810/codexmanager-service:latest`
+- `ghcr.io/chengliang4810/codexmanager-web:latest`
+
+这套模式仍然可用，但默认不再作为首选部署方式。详细示例见：
+
+- [运行与部署指南](docs/zh-CN/report/运行与部署指南.md)
+
+### Docker 默认值说明
+
+- 单容器 `codexmanager` 镜像已经内置下面这些默认值，所以部署时通常不用再手动写：
   - `CODEXMANAGER_SERVICE_ADDR=0.0.0.0:48760`
   - `CODEXMANAGER_WEB_ADDR=0.0.0.0:48761`
-  - `CODEXMANAGER_SERVICE_ADDR=codexmanager-service:48760`（web 镜像内默认）
   - `CODEXMANAGER_DB_PATH=/data/codexmanager.db`
   - `CODEXMANAGER_RPC_TOKEN_FILE=/data/codexmanager.rpc-token`
-  - `CODEXMANAGER_WEB_NO_SPAWN_SERVICE=1`
   - `CODEXMANAGER_WEB_NO_OPEN=1`
-- 真正建议用户显式配置的只有访问密码等个性化项
-- 对外通常只需要暴露 `48761`
-- `48760` 是内部 service 端口，默认留在容器网络内，由 `codexmanager-web` 反代 `/api/rpc`、`/v1/*`、`/health`、`/metrics`
+- 双容器 `codexmanager-web` 镜像额外内置：
+  - `CODEXMANAGER_WEB_NO_SPAWN_SERVICE=1`
+  - `CODEXMANAGER_SERVICE_ADDR=codexmanager-service:48760`
+- 真正建议用户显式配置的通常只有访问密码等个性化项
 - 如果使用 `./data:/data` 目录映射，镜像启动时会自动修正 `/data` 目录权限，然后再降权到应用用户运行，一般不需要再手动 `chown ./data`
 
 浏览器访问：
@@ -126,18 +129,17 @@ Release 会附带：
 - `CodexManager-service-linux-x86_64.zip`
 - `CodexManager-web-linux-x86_64.zip`
 - `CodexManager-start-linux-x86_64.zip`
+- `checksums.txt`
 
-如果你不走 Docker，可以直接解压 Linux 包并启动：
+如果你不走 Docker，推荐把 `codexmanager-service` 与 `codexmanager-web` 放在同一目录，并直接启动 `codexmanager-web`：
 
 ```bash
-# service
-./codexmanager-service
-
-# web
-CODEXMANAGER_WEB_NO_SPAWN_SERVICE=1 \
-CODEXMANAGER_SERVICE_ADDR=127.0.0.1:48760 \
+# web 会自动拉起同目录下的 service
+CODEXMANAGER_WEB_ACCESS_PASSWORD=admin123 \
 ./codexmanager-web
 ```
+
+如果你需要手动拆开两个进程，也可以继续按 `service -> web` 的方式分别启动。
 
 ## 本地开发
 
@@ -182,14 +184,21 @@ pnpm dev
 
 - `main` 每次推送会自动生成新的 patch 版本 Release
 - 镜像会同时推送精确版本标签和 `latest`
+- Release 会同时发布单容器镜像和双容器兼容镜像
 - 镜像内部会生成 `/app/version.json`
-- Web 端设置页的“检查更新”会读取当前服务端版本并对比 GitHub Release，但不会在页面内执行容器自升级
+- 单容器 `codexmanager` 镜像和同目录双二进制部署，支持页面内在线升级
 
-升级推荐方式：
+升级说明：
 
-1. 在设置页检查新版本并打开 Release 页面
-2. 选择新的 `vX.Y.Z`
-3. 重新拉取镜像并重启容器
+1. 设置页或顶部版本入口检查到新版本后，可直接点击“立即更新”
+2. 系统会下载 Release 中的 `CodexManager-service-linux-x86_64.zip` 与 `CodexManager-web-linux-x86_64.zip`
+3. 通过 `checksums.txt` 校验后，原地替换当前运行二进制
+4. `codexmanager-web` 会主动退出主进程，并依赖 Docker `restart` 策略或进程守护重新拉起
+
+补充：
+
+- 如果你使用的是单容器 `codexmanager` 镜像，请保留 `restart: unless-stopped`
+- 如果你使用的是双容器 `codexmanager-service` + `codexmanager-web`，当前仍建议手动拉取新镜像并重启容器
 
 ## 常用文档
 
