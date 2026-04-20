@@ -296,6 +296,9 @@ export type CheckUpdateRequest = {
 };
 
 export function buildReleaseUrl(summary: UpdateCheckResult | null): string {
+  if (summary?.releaseUrl) {
+    return summary.releaseUrl;
+  }
   if (!summary?.repo) {
     return "https://github.com/chengliang4810/Codex-Manager-Server/releases";
   }

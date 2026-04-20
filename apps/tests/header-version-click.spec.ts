@@ -52,7 +52,7 @@ const SETTINGS_SNAPSHOT = {
 };
 
 test("clicking header version triggers a fresh update check", async ({ page }) => {
-  let releaseRequestCount = 0;
+  let updateCheckRequestCount = 0;
 
   await page.route("**/api/version", async (route) => {
     await route.fulfill({
@@ -66,18 +66,29 @@ test("clicking header version triggers a fresh update check", async ({ page }) =
     });
   });
 
-  await page.route("https://api.github.com/repos/**/releases?per_page=1", async (route) => {
-    releaseRequestCount += 1;
-    const tagName = releaseRequestCount === 1 ? "v0.2.4" : "v0.2.5";
+  await page.route("**/api/system/check-updates", async (route) => {
+    updateCheckRequestCount += 1;
+    const hasUpdate = updateCheckRequestCount > 1;
+    const latestVersion = hasUpdate ? "0.2.5" : "0.2.4";
+    const releaseTag = `v${latestVersion}`;
     await route.fulfill({
       contentType: "application/json; charset=utf-8",
-      body: JSON.stringify([
-        {
-          tag_name: tagName,
-          name: `CodexManager Server ${tagName}`,
-          published_at: "2026-04-18T00:00:00Z",
-        },
-      ]),
+      body: JSON.stringify({
+        repo: "chengliang4810/Codex-Manager-Server",
+        mode: "web-self-update",
+        isPortable: false,
+        hasUpdate,
+        canPrepare: hasUpdate,
+        canRollback: false,
+        currentVersion: "0.2.4",
+        latestVersion,
+        releaseTag,
+        releaseName: `CodexManager Server ${releaseTag}`,
+        publishedAt: "2026-04-18T00:00:00Z",
+        reason: hasUpdate ? null : "当前已是最新版本",
+        checkedAtUnixSecs: 1713398400,
+        releaseUrl: `https://github.com/chengliang4810/Codex-Manager-Server/releases/tag/${releaseTag}`,
+      }),
     });
   });
 
@@ -131,9 +142,11 @@ test("clicking header version triggers a fresh update check", async ({ page }) =
   const versionButton = page.getByRole("button", { name: /v0\.2\.4/ });
   await expect(versionButton).toBeVisible();
   await expect(page.getByText("可更新")).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "发现新版本" })).toHaveCount(0);
 
   await versionButton.click();
 
-  await expect(page.getByText("可更新")).toBeVisible();
-  await expect(versionButton).toHaveText(/v0\.2\.4 -> v0\.2\.5/);
+  await expect(page.getByRole("dialog", { name: "发现新版本" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "立即更新" })).toBeVisible();
+  await expect(page.getByText("v0.2.4 -> v0.2.5")).toBeVisible();
 });

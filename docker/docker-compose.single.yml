@@ -1,0 +1,17 @@
+services:
+  codexmanager:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.allinone
+      args:
+        RELEASE_VERSION: ${CODEXMANAGER_RELEASE_VERSION:-0.2.4}
+        RELEASE_TAG: ${CODEXMANAGER_RELEASE_TAG:-v0.2.4}
+        RELEASE_REPOSITORY: ${CODEXMANAGER_RELEASE_REPOSITORY:-chengliang4810/Codex-Manager-Server}
+        RELEASE_BUILT_AT: ${CODEXMANAGER_RELEASE_BUILT_AT:-local-compose}
+    restart: unless-stopped
+    environment:
+      CODEXMANAGER_WEB_ACCESS_PASSWORD: ${CODEXMANAGER_WEB_ACCESS_PASSWORD:-admin123}
+    volumes:
+      - ../data:/data
+    ports:
+      - "48761:48761"

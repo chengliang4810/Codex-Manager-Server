@@ -3,6 +3,7 @@
 mod auth;
 mod embedded_ui;
 mod service_gateway;
+mod updater;
 mod ui_assets;
 
 use std::path::{Path, PathBuf};
@@ -34,6 +35,7 @@ struct AppState {
     web_auth_session_key: String,
     shutdown_tx: watch::Sender<bool>,
     spawned_service: Arc<Mutex<bool>>,
+    system_operation_lock: Arc<Mutex<()>>,
     missing_ui_html: Arc<String>,
 }
 
@@ -515,11 +517,16 @@ async fn async_main() {
         web_auth_session_key: auth::generate_web_auth_session_key(),
         shutdown_tx,
         spawned_service: spawned_service.clone(),
+        system_operation_lock: Arc::new(Mutex::new(())),
         missing_ui_html,
     });
 
     let mut protected_app = Router::new()
         .route("/api/rpc", post(service_gateway::rpc_proxy))
+        .route("/api/system/check-updates", get(updater::check_updates))
+        .route("/api/system/update", post(updater::perform_update))
+        .route("/api/system/rollback", post(updater::rollback_update))
+        .route("/api/system/restart", post(updater::restart_runtime))
         .route("/__quit", get(service_gateway::quit));
 
     let disk_ok = ensure_index_file(&index);
@@ -766,7 +773,10 @@ mod tests {
         let payload: serde_json::Value =
             serde_json::from_slice(&bytes).expect("parse version response json");
 
-        assert_eq!(payload["version"], codexmanager_service::core_version());
+        assert_eq!(
+            payload["version"],
+            codexmanager_service::release_metadata().version
+        );
         assert_eq!(payload["releaseTag"], codexmanager_service::release_tag());
         assert_eq!(
             payload["repository"],

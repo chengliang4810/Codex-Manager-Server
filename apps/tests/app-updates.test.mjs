@@ -92,3 +92,30 @@ test("buildInjectedRuntimeVersionInfo 从前端注入环境生成开发态版本
   assert.equal(result.repository, "chengliang4810/Codex-Manager-Server");
   assert.equal(result.builtAt, "next-dev");
 });
+
+test("normalizeUpdateCheckResult 保留在线升级和回滚字段", () => {
+  const result = appUpdates.normalizeUpdateCheckResult({
+    repo: "chengliang4810/Codex-Manager-Server",
+    mode: "web-self-update",
+    isPortable: false,
+    hasUpdate: true,
+    canPrepare: true,
+    canRollback: true,
+    currentVersion: "0.2.4",
+    latestVersion: "0.2.5",
+    releaseTag: "v0.2.5",
+    releaseName: "CodexManager Server v0.2.5",
+    publishedAt: "2026-04-20T12:00:00Z",
+    reason: null,
+    checkedAtUnixSecs: 123,
+    releaseUrl:
+      "https://github.com/chengliang4810/Codex-Manager-Server/releases/tag/v0.2.5",
+  });
+
+  assert.equal(result.canPrepare, true);
+  assert.equal(result.canRollback, true);
+  assert.equal(
+    result.releaseUrl,
+    "https://github.com/chengliang4810/Codex-Manager-Server/releases/tag/v0.2.5"
+  );
+});
