@@ -5,7 +5,7 @@ services:
     environment:
       CODEXMANAGER_WEB_ACCESS_PASSWORD: ${CODEXMANAGER_WEB_ACCESS_PASSWORD:?set CODEXMANAGER_WEB_ACCESS_PASSWORD}
     volumes:
-      - ../data:/data
+      - ./data:/data
 
   codexmanager-web:
     image: ghcr.io/chengliang4810/codexmanager-web:latest
@@ -14,6 +14,6 @@ services:
       codexmanager-service:
         condition: service_healthy
     volumes:
-      - ../data:/data
+      - ./data:/data
     ports:
       - "48761:48761"

@@ -1,0 +1,10 @@
+services:
+  codexmanager:
+    image: ghcr.io/chengliang4810/codexmanager:latest
+    restart: unless-stopped
+    environment:
+      CODEXMANAGER_WEB_ACCESS_PASSWORD: ${CODEXMANAGER_WEB_ACCESS_PASSWORD:?set CODEXMANAGER_WEB_ACCESS_PASSWORD}
+    volumes:
+      - ./data:/data
+    ports:
+      - "48761:48761"

@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { useAppStore } from "@/lib/store/useAppStore";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { AppUpdateDialog } from "@/components/modals/app-update-dialog";
 import { useI18n } from "@/lib/i18n/provider";
 import { getTopLevelRouteLabel } from "@/lib/app-shell/top-level-routes";
 import { resolveRenderableShellState } from "@/lib/app-shell/render-state";
@@ -18,7 +19,6 @@ import {
   type RuntimeVersionInfo,
   type UpdateCheckResult,
 } from "@/lib/api/app-updates";
-import { buildReleaseUrl } from "@/app/settings/settings-page-helpers";
 import { copyTextToClipboard } from "@/lib/utils/clipboard";
 
 /**
@@ -45,6 +45,7 @@ export function Header() {
   const [hasHydrated, setHasHydrated] = useState(false);
   const [runtimeVersion, setRuntimeVersion] = useState<RuntimeVersionInfo | null>(null);
   const [updateSummary, setUpdateSummary] = useState<UpdateCheckResult | null>(null);
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [didAnnounceUpdate, setDidAnnounceUpdate] = useState(false);
   const renderState = resolveRenderableShellState(
@@ -164,10 +165,6 @@ export function Header() {
       });
   };
 
-  const handleOpenReleasePage = () => {
-    void appClient.openInBrowser(buildReleaseUrl(updateSummary));
-  };
-
   const handleCheckUpdate = () => {
     setIsCheckingUpdate(true);
     void appClient
@@ -175,6 +172,7 @@ export function Header() {
       .then((result) => {
         setUpdateSummary(result);
         if (result.hasUpdate) {
+          setUpdateDialogOpen(true);
           toast.success(
             `${t("发现新版本")} ${result.latestVersion || result.releaseTag || t("可用")}`
           );
@@ -244,7 +242,7 @@ export function Header() {
               variant="ghost"
               size="sm"
               className="h-6 rounded-full bg-amber-500/15 px-2 text-[10px] text-amber-700 hover:bg-amber-500/20"
-              onClick={handleOpenReleasePage}
+              onClick={() => setUpdateDialogOpen(true)}
             >
               {t("可更新")}
             </Button>
@@ -272,6 +270,12 @@ export function Header() {
           {t("退出登录")}
         </Button>
       </div>
+      <AppUpdateDialog
+        open={updateDialogOpen}
+        summary={updateSummary}
+        onOpenChange={setUpdateDialogOpen}
+        onSummaryChange={setUpdateSummary}
+      />
     </header>
   );
 }

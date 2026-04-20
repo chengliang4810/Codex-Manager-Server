@@ -11,6 +11,7 @@ export interface UpdateCheckResult {
   isPortable: boolean;
   hasUpdate: boolean;
   canPrepare: boolean;
+  canRollback?: boolean;
   currentVersion: string;
   latestVersion: string;
   releaseTag: string;
@@ -18,6 +19,12 @@ export interface UpdateCheckResult {
   publishedAt: string | null;
   reason: string | null;
   checkedAtUnixSecs: number;
+  releaseUrl?: string | null;
+}
+
+export interface UpdateActionResult {
+  message: string;
+  needRestart: boolean;
 }
 
 type GitHubLatestRelease = {
@@ -112,6 +119,33 @@ export function buildUpdateCheckResult(
     publishedAt: asString(release?.published_at) || null,
     reason: hasUpdate ? null : "当前已是最新版本",
     checkedAtUnixSecs,
+    canRollback: false,
+    releaseUrl: release?.tag_name
+      ? `https://github.com/${runtimeInfo.repository}/releases/tag/${asString(release.tag_name)}`
+      : `https://github.com/${runtimeInfo.repository}/releases`,
+  };
+}
+
+export function normalizeUpdateCheckResult(payload: unknown): UpdateCheckResult {
+  const source = asRecord(payload) ?? {};
+  return {
+    repo: asString(source.repo) || "chengliang4810/Codex-Manager-Server",
+    mode: asString(source.mode) || "web-release",
+    isPortable: source.isPortable === true,
+    hasUpdate: source.hasUpdate === true,
+    canPrepare: source.canPrepare === true,
+    canRollback: source.canRollback === true,
+    currentVersion: normalizeVersion(asString(source.currentVersion)) || "0.0.0",
+    latestVersion: normalizeVersion(asString(source.latestVersion)) || "0.0.0",
+    releaseTag: asString(source.releaseTag),
+    releaseName: asString(source.releaseName) || null,
+    publishedAt: asString(source.publishedAt) || null,
+    reason: asString(source.reason) || null,
+    checkedAtUnixSecs:
+      typeof source.checkedAtUnixSecs === "number" && Number.isFinite(source.checkedAtUnixSecs)
+        ? source.checkedAtUnixSecs
+        : Math.floor(Date.now() / 1000),
+    releaseUrl: asString(source.releaseUrl) || null,
   };
 }
 

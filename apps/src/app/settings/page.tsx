@@ -54,8 +54,6 @@ import {
   AppWindow,
   Check,
   Cpu,
-  Download,
-  ExternalLink,
   Globe,
   Info,
   Palette,
@@ -70,6 +68,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/modals/confirm-dialog";
+import { AppUpdateDialog } from "@/components/modals/app-update-dialog";
 import { WebPasswordModal } from "@/components/modals/web-password-modal";
 import { useI18n } from "@/lib/i18n/provider";
 import {
@@ -89,7 +88,6 @@ import {
   WORKER_PRESET_KEYS,
   WORKER_PRESETS,
   asRecord,
-  buildReleaseUrl,
   type CheckUpdateRequest,
   compareEnvOverrideItems,
   formatFreeAccountModelLabel,
@@ -143,8 +141,6 @@ export default function SettingsPage() {
     rows: ModelForwardRuleRow[];
     passthroughLines: string[];
   } | null>(null);
-  const [lastUpdateCheck, setLastUpdateCheck] =
-    useState<UpdateCheckResult | null>(null);
   const [updateDialogCheck, setUpdateDialogCheck] =
     useState<UpdateCheckResult | null>(null);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
@@ -302,12 +298,12 @@ export default function SettingsPage() {
       return appClient.checkUpdate();
     },
     onSuccess: (summary, request) => {
-      setLastUpdateCheck(summary);
       setUpdateDialogCheck(summary);
       if (summary.hasUpdate) {
+        setUpdateDialogOpen(true);
         if (!request?.silent) {
           toast.success(
-            `${t("发现新版本")} ${summary.latestVersion || summary.releaseTag || t("可用")}${t("，请打开发布页查看升级方式")}`,
+            `${t("发现新版本")} ${summary.latestVersion || summary.releaseTag || t("可用")}`,
           );
         }
         return;
@@ -361,42 +357,6 @@ export default function SettingsPage() {
     window.sessionStorage.setItem(SETTINGS_ACTIVE_TAB_KEY, activeTab);
   }, [activeTab]);
 
-  useEffect(() => {
-    if (isPageActive) {
-      return;
-    }
-    if (typeof window === "undefined") {
-      return;
-    }
-    const frameId = window.requestAnimationFrame(() => {
-      setUpdateDialogOpen(false);
-    });
-    return () => {
-      window.cancelAnimationFrame(frameId);
-    };
-  }, [isPageActive]);
-
-  /**
-   * 函数 `handleOpenReleasePage`
-   *
-   * 作者: gaohongshun
-   *
-   * 时间: 2026-04-02
-   *
-   * # 参数
-   * 无
-   *
-   * # 返回
-   * 返回函数执行结果
-   */
-  const handleOpenReleasePage = () => {
-    void appClient
-      .openInBrowser(buildReleaseUrl(updateDialogCheck ?? lastUpdateCheck))
-      .catch((error) => {
-        toast.error(`${t("打开发布页失败")}: ${getAppErrorMessage(error)}`);
-      });
-  };
-
   /**
    * 函数 `handleManualCheckUpdate`
    *
@@ -418,7 +378,7 @@ export default function SettingsPage() {
 
   const updateActionLabel = t("检查更新");
   const updateActionDescription = t(
-    "检查 GitHub Releases 是否有新版本，并跳转到发布页查看 Docker / Linux 部署方式。",
+    "检查 GitHub Releases 是否有新版本；支持在线升级的运行形态会直接在后台下载并应用更新。",
   );
   const updateActionBusy = Boolean(
     manualUpdateCheckPending,
@@ -2088,77 +2048,6 @@ export default function SettingsPage() {
         </TabsContent>
       </Tabs>
 
-      <Dialog
-        open={updateDialogOpen}
-        onOpenChange={(open) => {
-          setUpdateDialogOpen(open);
-        }}
-      >
-        <DialogContent
-          showCloseButton={false}
-          className="glass-card border-none p-6 sm:max-w-[480px]"
-        >
-          <DialogHeader>
-            <DialogTitle>{t("发现新版本")}</DialogTitle>
-            <DialogDescription>
-              {`${t("当前版本")} ${updateDialogCheck?.currentVersion || t("未知")}，${t("发现新版本")} ${
-                updateDialogCheck?.latestVersion ||
-                updateDialogCheck?.releaseTag ||
-                t("可用")
-              }。`}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3 text-sm">
-            <div className="rounded-2xl border border-border/50 bg-background/45 p-4">
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-muted-foreground">{t("当前版本")}</span>
-                <span className="font-medium">
-                  {updateDialogCheck?.currentVersion || t("未知")}
-                </span>
-              </div>
-              <div className="mt-2 flex items-center justify-between gap-4">
-                <span className="text-muted-foreground">{t("目标版本")}</span>
-                <span className="font-medium">
-                  {updateDialogCheck?.latestVersion ||
-                    updateDialogCheck?.releaseTag ||
-                    t("未知")}
-                </span>
-              </div>
-              <div className="mt-2 flex items-center justify-between gap-4">
-                <span className="text-muted-foreground">{t("推荐方式")}</span>
-                <span className="font-medium">
-                  {t("Docker / Linux 发布")}
-                </span>
-              </div>
-            </div>
-
-            {updateDialogCheck?.reason ? (
-              <div className="rounded-2xl border border-border/50 bg-muted/40 p-4 text-xs leading-5 text-muted-foreground">
-                {updateDialogCheck.reason}
-              </div>
-            ) : (
-              <div className="rounded-2xl border border-border/50 bg-muted/40 p-4 text-xs leading-5 text-muted-foreground">
-                {t("Web / Docker 版不会在页面内执行自更新。请打开发布页，按照最新 Release 中的 Docker 或 Linux 包方式完成升级。")}
-              </div>
-            )}
-          </div>
-
-          <DialogFooter className="gap-2 sm:gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setUpdateDialogOpen(false)}
-            >
-              {t("稍后")}
-            </Button>
-            <Button className="gap-2" onClick={handleOpenReleasePage}>
-              <ExternalLink className="h-4 w-4" />
-              {t("打开发布页")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       <ConfirmDialog
         open={resetAllEnvDialogOpen}
         onOpenChange={setResetAllEnvDialogOpen}
@@ -2167,6 +2056,12 @@ export default function SettingsPage() {
         confirmText={t("确认恢复")}
         cancelText={t("取消")}
         onConfirm={handleResetAllEnv}
+      />
+      <AppUpdateDialog
+        open={updateDialogOpen}
+        summary={updateDialogCheck}
+        onOpenChange={setUpdateDialogOpen}
+        onSummaryChange={setUpdateDialogCheck}
       />
       <WebPasswordModal
         open={webPasswordModalOpen}

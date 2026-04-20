@@ -186,6 +186,7 @@ jobs:
           stage_binary_zip "codexmanager-start" "CodexManager-start-linux-x86_64.zip"
 
           cp docker/docker-compose.release.yml "${assets_dir}/docker-compose.release.yml"
+          cp docker/docker-compose.single.release.yml "${assets_dir}/docker-compose.single.release.yml"
 
           cat > "${assets_dir}/release-manifest.json" <<EOF
           {
@@ -197,10 +198,24 @@ jobs:
               "service": "ghcr.io/${{ github.repository_owner }}/codexmanager-service:${RELEASE_TAG}",
               "serviceLatest": "ghcr.io/${{ github.repository_owner }}/codexmanager-service:latest",
               "web": "ghcr.io/${{ github.repository_owner }}/codexmanager-web:${RELEASE_TAG}",
-              "webLatest": "ghcr.io/${{ github.repository_owner }}/codexmanager-web:latest"
+              "webLatest": "ghcr.io/${{ github.repository_owner }}/codexmanager-web:latest",
+              "allInOne": "ghcr.io/${{ github.repository_owner }}/codexmanager:${RELEASE_TAG}",
+              "allInOneLatest": "ghcr.io/${{ github.repository_owner }}/codexmanager:latest"
             }
           }
           EOF
+
+          (
+            cd "$assets_dir"
+            sha256sum \
+              CodexManager-service-linux-x86_64.zip \
+              CodexManager-web-linux-x86_64.zip \
+              CodexManager-start-linux-x86_64.zip \
+              docker-compose.release.yml \
+              docker-compose.single.release.yml \
+              release-manifest.json \
+              > checksums.txt
+          )
 
       - name: Build release Docker images
         shell: bash
@@ -220,6 +235,7 @@ jobs:
 
           cp docker/Dockerfile.service.release "$docker_stage/Dockerfile.service"
           cp docker/Dockerfile.web.release "$docker_stage/Dockerfile.web"
+          cp docker/Dockerfile.allinone.release "$docker_stage/Dockerfile.allinone"
           cp docker/entrypoint.sh "$docker_stage/docker/entrypoint.sh"
           cp "${release_dir}/codexmanager-service" "$docker_stage/codexmanager-service"
           cp "${release_dir}/codexmanager-web" "$docker_stage/codexmanager-web"
@@ -244,6 +260,15 @@ jobs:
             -t codexmanager-web:release \
             "$docker_stage"
 
+          docker build \
+            -f "$docker_stage/Dockerfile.allinone" \
+            --build-arg RELEASE_VERSION="$RELEASE_VERSION" \
+            --build-arg RELEASE_TAG="$RELEASE_TAG" \
+            --build-arg RELEASE_REPOSITORY="$RELEASE_REPOSITORY" \
+            --build-arg RELEASE_BUILT_AT="$RELEASE_BUILT_AT" \
+            -t codexmanager:release \
+            "$docker_stage"
+
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -263,11 +288,15 @@ jobs:
           docker tag codexmanager-service:release "ghcr.io/${owner}/codexmanager-service:latest"
           docker tag codexmanager-web:release "ghcr.io/${owner}/codexmanager-web:${RELEASE_TAG}"
           docker tag codexmanager-web:release "ghcr.io/${owner}/codexmanager-web:latest"
+          docker tag codexmanager:release "ghcr.io/${owner}/codexmanager:${RELEASE_TAG}"
+          docker tag codexmanager:release "ghcr.io/${owner}/codexmanager:latest"
 
           docker push "ghcr.io/${owner}/codexmanager-service:${RELEASE_TAG}"
           docker push "ghcr.io/${owner}/codexmanager-service:latest"
           docker push "ghcr.io/${owner}/codexmanager-web:${RELEASE_TAG}"
           docker push "ghcr.io/${owner}/codexmanager-web:latest"
+          docker push "ghcr.io/${owner}/codexmanager:${RELEASE_TAG}"
+          docker push "ghcr.io/${owner}/codexmanager:latest"
 
       - name: List release assets
         run: find "${CARGO_TARGET_DIR}/release/release-assets" -type f | sort

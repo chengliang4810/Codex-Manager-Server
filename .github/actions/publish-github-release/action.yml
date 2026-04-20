@@ -65,7 +65,7 @@ runs:
 
         TITLE="CodexManager $TAG"
         mapfile -t FILES < <(find "$ASSETS_DIR" -type f \( \
-          -name '*.zip' -o -name '*.yml' -o -name '*.yaml' -o -name '*.json' \
+          -name '*.zip' -o -name '*.yml' -o -name '*.yaml' -o -name '*.json' -o -name '*.txt' \
         \) | sort)
         if [ "${#FILES[@]}" -eq 0 ]; then
           echo "No release assets found."
