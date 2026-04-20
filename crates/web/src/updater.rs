@@ -308,13 +308,39 @@ fn supports_self_update(state: &AppState) -> bool {
     };
     let has_service_binary = dir.join(service_binary_name()).is_file();
     let spawned_service = *state.spawned_service.blocking_lock();
+    let dir_writable = update_dir_writable(dir);
     can_self_update_runtime(
         cfg!(target_os = "linux"),
         read_env_trim("CODEXMANAGER_WEB_NO_SPAWN_SERVICE").is_some(),
         read_env_trim("CODEXMANAGER_SINGLE_CONTAINER").is_some(),
         spawned_service,
         has_service_binary,
+        dir_writable,
     )
+}
+
+fn update_dir_writable(dir: &Path) -> bool {
+    if !dir.is_dir() {
+        return false;
+    }
+    let probe_path = dir.join(format!(
+        ".codexmanager-write-probe-{}",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|value| value.as_nanos())
+            .unwrap_or(0)
+    ));
+    match fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&probe_path)
+    {
+        Ok(_) => {
+            let _ = fs::remove_file(&probe_path);
+            true
+        }
+        Err(_) => false,
+    }
 }
 
 fn can_self_update_runtime(
@@ -323,8 +349,9 @@ fn can_self_update_runtime(
     single_container_mode: bool,
     spawned_service: bool,
     has_service_binary: bool,
+    dir_writable: bool,
 ) -> bool {
-    if !is_linux || !has_service_binary {
+    if !is_linux || !has_service_binary || !dir_writable {
         return false;
     }
     if single_container_mode {
@@ -647,9 +674,10 @@ mod tests {
 
     #[test]
     fn can_self_update_runtime_accepts_supervised_single_container_mode() {
-        assert!(can_self_update_runtime(true, true, true, false, true));
-        assert!(!can_self_update_runtime(true, false, false, false, true));
-        assert!(!can_self_update_runtime(false, false, true, false, true));
-        assert!(!can_self_update_runtime(true, false, true, false, false));
+        assert!(can_self_update_runtime(true, true, true, false, true, true));
+        assert!(!can_self_update_runtime(true, false, false, false, true, true));
+        assert!(!can_self_update_runtime(false, false, true, false, true, true));
+        assert!(!can_self_update_runtime(true, false, true, false, false, true));
+        assert!(!can_self_update_runtime(true, true, true, false, true, false));
     }
 }
