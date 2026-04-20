@@ -47,6 +47,7 @@ import {
   isLowQuotaUsage,
   toNullableNumber,
 } from "@/lib/utils/usage";
+import { getDefaultBrowserGatewayAddr } from "@/lib/utils/service";
 
 const DEFAULT_BACKGROUND_TASKS: BackgroundTaskSettings = {
   usagePollingEnabled: true,
@@ -1562,7 +1563,7 @@ export function normalizeAppSettings(payload: unknown): AppSettings {
     ),
     locale: asString(source.locale) || "zh-CN",
     localeOptions: asArray(source.localeOptions).map((item) => asString(item)).filter(Boolean),
-    serviceAddr: asString(source.serviceAddr) || "localhost:48760",
+    serviceAddr: getDefaultBrowserGatewayAddr(),
     serviceListenMode: asString(source.serviceListenMode) || "loopback",
     serviceListenModeOptions: asArray(source.serviceListenModeOptions).map((item) =>
       asString(item)

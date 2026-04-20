@@ -20,16 +20,43 @@ import {
 } from "@/components/ui/tooltip";
 import type { Account } from "@/types";
 
-export type StatusFilter = "all" | "available" | "low_quota" | "banned";
+export type StatusFilter = "all" | "available" | "low_quota" | "limited" | "banned";
 export type AccountExportMode = "single" | "multiple";
 export type AccountSizeSortMode = "large-first" | "small-first";
+export type AccountsOverviewViewMode = "compact" | "list" | "grid";
 
 const ACCOUNT_SORT_STEP = 5;
+export const ACCOUNTS_OVERVIEW_VIEW_MODE_KEY =
+  "codexmanager.accounts.overview-view-mode.v2";
 
 export type TranslateFn = (
   key: string,
   values?: Record<string, string | number>,
 ) => string;
+
+export function normalizeAccountsOverviewViewMode(
+  value: string | null | undefined,
+): AccountsOverviewViewMode | null {
+  if (value === "compact" || value === "list" || value === "grid") {
+    return value;
+  }
+  return null;
+}
+
+export function readInitialAccountsOverviewViewMode(): AccountsOverviewViewMode {
+  if (typeof window === "undefined") {
+    return "grid";
+  }
+  try {
+    return (
+      normalizeAccountsOverviewViewMode(
+        window.localStorage.getItem(ACCOUNTS_OVERVIEW_VIEW_MODE_KEY),
+      ) || "grid"
+    );
+  } catch {
+    return "grid";
+  }
+}
 
 export function formatAccountPlanValueLabel(value: string, t: TranslateFn) {
   const normalized = String(value || "")
@@ -82,6 +109,8 @@ export function formatStatusFilterLabel(value: string, t: TranslateFn) {
       return t("可用");
     case "low_quota":
       return t("低配额");
+    case "limited":
+      return t("限流");
     case "banned":
       return t("封禁");
     case "all":
@@ -118,6 +147,128 @@ export type DeleteDialogState =
   | { kind: "single"; account: Account }
   | { kind: "selected"; ids: string[]; count: number }
   | null;
+
+export interface AccountPresentation {
+  id: string;
+  displayName: string;
+  identityText: string;
+  planLabel: string | null;
+  planClassName: string;
+  statusText: string;
+  subscriptionStatusText: string;
+  subscriptionPlanText: string;
+  subscriptionExpiryText: string;
+  noteText: string;
+  tags: string[];
+  quotaItems: QuotaSummaryItem[];
+}
+
+export interface AccountCompactQuotaItem {
+  key: string;
+  label: string;
+  valueText: string;
+  quotaClassName: string;
+  dotClassName: string;
+}
+
+export function buildAccountPresentation(
+  account: Account,
+  t: TranslateFn,
+): AccountPresentation {
+  const displayName =
+    String(account.label || "").trim() ||
+    String(account.name || "").trim() ||
+    String(account.id || "").trim() ||
+    t("未知");
+  const rawIdentity =
+    String(account.name || "").trim() && String(account.name || "").trim() !== displayName
+      ? String(account.name || "").trim()
+      : String(account.id || "").trim();
+  const planLabel = formatAccountPlanLabel(account, t);
+  const noteText = String(account.note || "").trim();
+
+  return {
+    id: account.id,
+    displayName,
+    identityText: rawIdentity || t("未知"),
+    planLabel,
+    planClassName: getAccountPlanBadgeClassName(planLabel),
+    statusText: t(account.availabilityText || "未知"),
+    subscriptionStatusText: formatAccountSubscriptionStatusLabel(account, t),
+    subscriptionPlanText: formatAccountSubscriptionPlanLabel(account, t),
+    subscriptionExpiryText:
+      account.subscriptionExpiresAt != null
+        ? formatTsFromSeconds(account.subscriptionExpiresAt, t("未知"))
+        : account.hasSubscription === false
+          ? t("未订阅")
+          : t("未知"),
+    noteText,
+    tags: account.tags,
+    quotaItems: buildQuotaSummaryItems(account, t),
+  };
+}
+
+function resolveQuotaSeverity(
+  remainPercent: number | null,
+): "high" | "medium" | "low" | "critical" | "unknown" {
+  if (remainPercent == null || !Number.isFinite(remainPercent)) {
+    return "unknown";
+  }
+  if (remainPercent >= 80) return "high";
+  if (remainPercent >= 40) return "medium";
+  if (remainPercent >= 10) return "low";
+  return "critical";
+}
+
+function getCompactQuotaClassName(item: QuotaSummaryItem): string {
+  switch (resolveQuotaSeverity(item.remainPercent)) {
+    case "high":
+      return "text-green-600 dark:text-green-400";
+    case "medium":
+      return "text-amber-600 dark:text-amber-400";
+    case "low":
+      return "text-orange-600 dark:text-orange-400";
+    case "critical":
+      return "text-red-600 dark:text-red-400";
+    default:
+      return "text-muted-foreground";
+  }
+}
+
+function getCompactQuotaDotClassName(item: QuotaSummaryItem): string {
+  switch (item.tone) {
+    case "green":
+      return "bg-green-500";
+    case "blue":
+      return "bg-blue-500";
+    case "amber":
+      return "bg-amber-500";
+    default:
+      return "bg-muted-foreground";
+  }
+}
+
+function compactQuotaLabel(label: string): string {
+  const normalized = String(label || "").trim();
+  if (normalized === "5小时") return "5h";
+  if (normalized === "7天") return "7d";
+  return normalized;
+}
+
+export function buildAccountCompactQuotaItems(
+  presentation: AccountPresentation,
+): AccountCompactQuotaItem[] {
+  return presentation.quotaItems.slice(0, 2).map((item) => ({
+    key: item.id,
+    label: compactQuotaLabel(item.label),
+    valueText:
+      item.remainPercent == null
+        ? item.emptyText || "--"
+        : `${item.remainPercent}%`,
+    quotaClassName: getCompactQuotaClassName(item),
+    dotClassName: getCompactQuotaDotClassName(item),
+  }));
+}
 
 function QuotaProgress({
   label,
@@ -183,54 +334,61 @@ function QuotaProgress({
 export function QuotaOverviewCell({ items }: { items: QuotaSummaryItem[] }) {
   const { t } = useI18n();
   const summaryItems = items.slice(0, 2);
-  const resetSummary = summaryItems
-    .map(
-      (item) =>
-        `${item.label}${t("重置")}: ${formatTsFromSeconds(
-          item.resetsAt,
-          item.emptyResetText ?? t("未知"),
-        )}`,
-    )
-    .join(" · ");
+  const toneClasses = {
+    blue: {
+      icon: "text-blue-500",
+      track: "bg-blue-500/20",
+      indicator: "bg-blue-500",
+    },
+    green: {
+      icon: "text-green-500",
+      track: "bg-green-500/20",
+      indicator: "bg-green-500",
+    },
+    amber: {
+      icon: "text-amber-500",
+      track: "bg-amber-500/20",
+      indicator: "bg-amber-500",
+    },
+  } as const;
 
   return (
     <Tooltip>
       <TooltipTrigger render={<div />} className="block cursor-help">
-        <div className="rounded-xl border border-primary/5 bg-accent/10 px-3 py-2">
-          <div className="flex items-center gap-3">
-            {summaryItems.map((item) => (
-              <div key={item.id} className="min-w-0 flex-1 space-y-1">
-                <div className="flex items-center justify-between text-[10px]">
-                  <span className="text-muted-foreground">{item.label}</span>
-                  <span className="font-medium text-foreground/80">
+        <div className="grid gap-2">
+          {summaryItems.map((item) => {
+            const palette = toneClasses[item.tone];
+            return (
+              <div
+                key={item.id}
+                className="rounded-xl border border-border/50 bg-background/35 p-3"
+              >
+                <div className="mb-2 flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-1.5 text-muted-foreground">
+                    <item.icon className={cn("h-3.5 w-3.5", palette.icon)} />
+                    <span>{item.label}额度</span>
+                  </div>
+                  <span className="font-semibold">
                     {item.remainPercent == null
-                      ? (item.emptyText ?? "--")
+                      ? item.emptyText || "--"
                       : `${item.remainPercent}%`}
                   </span>
                 </div>
                 <Progress
                   value={item.remainPercent ?? 0}
-                  trackClassName={
-                    item.tone === "blue"
-                      ? "bg-blue-500/20"
-                      : item.tone === "amber"
-                        ? "bg-amber-500/20"
-                        : "bg-green-500/20"
-                  }
-                  indicatorClassName={
-                    item.tone === "blue"
-                      ? "bg-blue-500"
-                      : item.tone === "amber"
-                        ? "bg-amber-500"
-                        : "bg-green-500"
-                  }
+                  trackClassName={palette.track}
+                  indicatorClassName={palette.indicator}
                 />
+                <div className="mt-2 text-[10px] text-muted-foreground">
+                  {t("重置")}:{" "}
+                  {formatTsFromSeconds(
+                    item.resetsAt,
+                    item.emptyResetText ?? t("未知"),
+                  )}
+                </div>
               </div>
-            ))}
-          </div>
-          <div className="mt-1 truncate text-[10px] text-muted-foreground">
-            {resetSummary}
-          </div>
+            );
+          })}
         </div>
       </TooltipTrigger>
       <TooltipContent
@@ -478,17 +636,9 @@ export function AccountInfoCell({
   isPreferred: boolean;
 }) {
   const { t } = useI18n();
-  const accountPlanLabel = formatAccountPlanLabel(account, t);
-  const subscriptionStatusLabel = formatAccountSubscriptionStatusLabel(account, t);
-  const subscriptionPlanLabel = formatAccountSubscriptionPlanLabel(account, t);
-  const subscriptionExpiryText =
-    account.subscriptionExpiresAt != null
-      ? formatTsFromSeconds(account.subscriptionExpiresAt, t("未知"))
-      : account.hasSubscription === false
-        ? t("未订阅")
-        : t("未知");
-  const tagsText = formatAccountTags(account.tags);
-  const noteText = String(account.note || "").trim();
+  const presentation = buildAccountPresentation(account, t);
+  const tagsText = formatAccountTags(presentation.tags);
+  const showInlineIdentity = presentation.identityText !== account.id;
 
   return (
     <Tooltip>
@@ -496,17 +646,17 @@ export function AccountInfoCell({
         <div className="flex flex-col overflow-hidden">
           <div className="flex items-center gap-2 overflow-hidden">
             <span className="truncate text-sm font-semibold">
-              {account.name}
+              {presentation.displayName}
             </span>
-            {accountPlanLabel ? (
+            {presentation.planLabel ? (
               <Badge
                 variant="secondary"
                 className={cn(
                   "h-4 shrink-0 px-1.5 text-[9px]",
-                  getAccountPlanBadgeClassName(accountPlanLabel),
+                  presentation.planClassName,
                 )}
               >
-                {accountPlanLabel}
+                {presentation.planLabel}
               </Badge>
             ) : null}
             {isPreferred ? (
@@ -518,16 +668,28 @@ export function AccountInfoCell({
               </Badge>
             ) : null}
           </div>
-          <span className="truncate font-mono text-[10px] uppercase text-muted-foreground opacity-60">
-            {account.id.slice(0, 16)}...
-          </span>
+          {showInlineIdentity ? (
+            <span className="truncate font-mono text-[10px] uppercase text-muted-foreground opacity-60">
+              {presentation.identityText}
+            </span>
+          ) : null}
           <span className="mt-1 text-[10px] text-muted-foreground">
             {t("最近刷新")}:{" "}
             {formatTsFromSeconds(account.lastRefreshAt, t("从未刷新"))}
           </span>
           <span className="text-[10px] text-muted-foreground">
-            {t("订阅到期")}: {subscriptionExpiryText}
+            {t("订阅到期")}: {presentation.subscriptionExpiryText}
           </span>
+          {presentation.tags.length > 0 ? (
+            <span className="truncate text-[10px] text-muted-foreground">
+              {t("标签")}: {tagsText}
+            </span>
+          ) : null}
+          {presentation.noteText ? (
+            <span className="truncate text-[10px] text-muted-foreground">
+              {presentation.noteText}
+            </span>
+          ) : null}
         </div>
       </TooltipTrigger>
       <TooltipContent className="max-w-sm">
@@ -537,27 +699,25 @@ export function AccountInfoCell({
               <div className="text-[10px] text-background/70">
                 {t("账号类型")}
               </div>
-              <div className="font-medium">{accountPlanLabel || t("未知")}</div>
+              <div className="font-medium">{presentation.planLabel || t("未知")}</div>
             </div>
             <div className="space-y-0.5">
               <div className="text-[10px] text-background/70">
                 {t("当前状态")}
               </div>
-              <div className="font-medium">
-                {t(account.availabilityText || "未知")}
-              </div>
+              <div className="font-medium">{presentation.statusText}</div>
             </div>
             <div className="space-y-0.5">
               <div className="text-[10px] text-background/70">
                 {t("订阅状态")}
               </div>
-              <div className="font-medium">{subscriptionStatusLabel}</div>
+              <div className="font-medium">{presentation.subscriptionStatusText}</div>
             </div>
             <div className="space-y-0.5">
               <div className="text-[10px] text-background/70">
                 {t("订阅方案")}
               </div>
-              <div className="font-medium">{subscriptionPlanLabel}</div>
+              <div className="font-medium">{presentation.subscriptionPlanText}</div>
             </div>
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
@@ -566,7 +726,7 @@ export function AccountInfoCell({
                 {t("到期时间")}
               </div>
               <div className="font-medium">
-                {formatTsFromSeconds(account.subscriptionExpiresAt, t("未知"))}
+                {presentation.subscriptionExpiryText}
               </div>
             </div>
             <div className="space-y-0.5">
@@ -585,7 +745,7 @@ export function AccountInfoCell({
           <div className="space-y-0.5">
             <div className="text-[10px] text-background/70">{t("备注")}</div>
             <div className="whitespace-pre-wrap break-words">
-              {noteText || t("未设置")}
+              {presentation.noteText || t("未设置")}
             </div>
           </div>
           <div className="space-y-0.5">

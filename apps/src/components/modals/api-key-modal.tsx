@@ -31,12 +31,6 @@ import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { Key, Clipboard, ShieldCheck } from "lucide-react";
 import { ApiKey } from "@/types";
 
-const PROTOCOL_LABELS: Record<string, string> = {
-  openai_compat: "通配兼容 (Codex / Claude Code / Gemini CLI)",
-  anthropic_native: "通配兼容 (Codex / Claude Code / Gemini CLI)",
-  gemini_native: "通配兼容 (Codex / Claude Code / Gemini CLI)",
-};
-
 const REASONING_LABELS: Record<string, string> = {
   auto: "跟随请求",
   low: "低 (low)",
@@ -54,11 +48,6 @@ function normalizeEditableServiceTier(value?: string | null): string {
   const normalized = String(value || "").trim().toLowerCase();
   return normalized === "fast" ? "fast" : "";
 }
-
-const ROTATION_STRATEGY_LABELS: Record<string, string> = {
-  account_rotation: "账号轮转",
-  aggregate_api_rotation: "聚合API轮转",
-};
 
 const ACCOUNT_PLAN_FILTER_LABELS: Record<string, string> = {
   all: "全部账号",
@@ -97,11 +86,9 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
   const serviceStatus = useAppStore((state) => state.serviceStatus);
   const { canAccessManagementRpc } = useRuntimeCapabilities();
   const [name, setName] = useState("");
-  const [protocolType, setProtocolType] = useState("openai_compat");
   const [modelSlug, setModelSlug] = useState("");
   const [reasoningEffort, setReasoningEffort] = useState("");
   const [serviceTier, setServiceTier] = useState("");
-  const [rotationStrategy, setRotationStrategy] = useState("account_rotation");
   const [accountPlanFilter, setAccountPlanFilter] = useState("all");
   const [upstreamBaseUrl, setUpstreamBaseUrl] = useState("");
   const [generatedKey, setGeneratedKey] = useState("");
@@ -165,11 +152,9 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
 
     if (!apiKey) {
       setName("");
-      setProtocolType("openai_compat");
       setModelSlug("");
       setReasoningEffort("");
       setServiceTier("");
-      setRotationStrategy("account_rotation");
       setAccountPlanFilter("all");
       setUpstreamBaseUrl("");
       setGeneratedKey("");
@@ -177,11 +162,9 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
     }
 
     setName(apiKey.name || "");
-    setProtocolType("openai_compat");
     setModelSlug(apiKey.modelSlug || "");
     setReasoningEffort(apiKey.reasoningEffort || "");
     setServiceTier(normalizeEditableServiceTier(apiKey.serviceTier));
-    setRotationStrategy(apiKey.rotationStrategy || "account_rotation");
     setAccountPlanFilter(apiKey.accountPlanFilter || "all");
     setGeneratedKey("");
     setUpstreamBaseUrl(apiKey.upstreamBaseUrl || "");
@@ -220,14 +203,11 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
             : reasoningEffort,
         serviceTier:
           !serviceTier || serviceTier === "auto" ? null : serviceTier,
-        protocolType,
+        protocolType: "openai_compat",
         upstreamBaseUrl: upstreamBaseUrl || null,
         staticHeadersJson: null,
-        rotationStrategy,
-        accountPlanFilter:
-          rotationStrategy === "account_rotation" && accountPlanFilter !== "all"
-            ? accountPlanFilter
-            : null,
+        rotationStrategy: "account_rotation",
+        accountPlanFilter: accountPlanFilter !== "all" ? accountPlanFilter : null,
       };
 
       if (apiKey?.id) {
@@ -289,7 +269,7 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
             </DialogTitle>
           </div>
           <DialogDescription>
-            {t("配置网关访问凭据，您可以绑定特定模型、推理等级或自定义上游。")}
+            {t("配置网关访问凭据。平台密钥固定按账号轮转，协议默认按通配兼容处理。")}
           </DialogDescription>
         </DialogHeader>
 
@@ -311,99 +291,49 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
               />
             </div>
             <div className="grid gap-2 content-start">
-              <Label>{t("轮转策略")}</Label>
-              <Select
-                value={rotationStrategy}
-                onValueChange={(val) => {
-                  if (!val) return;
-                  setRotationStrategy(val);
-                }}
-                disabled={!isServiceReady}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(value) =>
-                      t(ROTATION_STRATEGY_LABELS[String(value || "")] || "账号轮转")
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent align="start">
-                  <SelectItem value="account_rotation">{t("账号轮转")}</SelectItem>
-                  <SelectItem value="aggregate_api_rotation">
-                    {t("聚合API轮转")}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
+              <Label>{t("轮转方式")}</Label>
+              <div className="flex h-10 items-center rounded-md border bg-muted/30 px-3 text-sm text-muted-foreground">
+                {t("账号轮转（固定）")}
+              </div>
             </div>
             <p className="col-span-2 -mt-1 text-[11px] text-muted-foreground">
-              {t("账号轮转保持现有路由逻辑；聚合API轮转会直接透传请求。")}
+              {t("平台密钥统一按账号轮转选路；协议按路径做通配兼容，不再单独配置。")}
             </p>
           </div>
 
-          {rotationStrategy === "account_rotation" ? (
-            <div className="grid gap-2">
-              <Label>{t("账号组筛选")}</Label>
-              <Select
-                value={accountPlanFilter}
-                onValueChange={(val) => val && setAccountPlanFilter(val)}
-                disabled={!isServiceReady}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(value) =>
-                      t(
-                        ACCOUNT_PLAN_FILTER_LABELS[String(value || "")] ||
-                          "全部账号",
-                      )
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent align="start">
-                  {Object.entries(ACCOUNT_PLAN_FILTER_LABELS).map(
-                    ([value, label]) => (
-                      <SelectItem key={value} value={value}>
-                        {t(label)}
-                      </SelectItem>
-                    ),
-                  )}
-                </SelectContent>
-              </Select>
-              <p className="text-[11px] text-muted-foreground">
-                {t(
-                  "仅对账号轮转生效，可限制这把平台密钥只从指定账号计划类型中选路由账号。",
+          <div className="grid gap-2">
+            <Label>{t("账号组筛选")}</Label>
+            <Select
+              value={accountPlanFilter}
+              onValueChange={(val) => val && setAccountPlanFilter(val)}
+              disabled={!isServiceReady}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue>
+                  {(value) =>
+                    t(
+                      ACCOUNT_PLAN_FILTER_LABELS[String(value || "")] ||
+                        "全部账号",
+                    )
+                  }
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent align="start">
+                {Object.entries(ACCOUNT_PLAN_FILTER_LABELS).map(
+                  ([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {t(label)}
+                    </SelectItem>
+                  ),
                 )}
-              </p>
-            </div>
-          ) : null}
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground">
+              {t("可限制这把平台密钥只从指定账号计划类型中选路由账号。")}
+            </p>
+          </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <div className="grid gap-2 content-start">
-              <Label>{t("协议类型")}</Label>
-              <Select
-                value={protocolType}
-                onValueChange={(val) => val && setProtocolType(val)}
-                disabled={!isServiceReady}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(value) =>
-                      t(
-                        PROTOCOL_LABELS[String(value || "")] ||
-                          "通配兼容 (Codex / Claude Code / Gemini CLI)",
-                      )
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent align="start">
-                  <SelectItem value="openai_compat">
-                    {t("通配兼容 (Codex / Claude Code / Gemini CLI)")}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="min-h-[32px] text-[11px] text-muted-foreground">
-                {t("默认按路径通配：")}<code>/v1/messages*</code> {t("走 Claude 语义，")}<code>/v1beta/models/*:generateContent</code> {t("这类路径走 Gemini 语义，其它标准路径走 Codex / OpenAI 语义。")}
-              </p>
-            </div>
             <div className="grid gap-2 content-start">
               <Label>{t("绑定模型 (可选)")}</Label>
               <Select

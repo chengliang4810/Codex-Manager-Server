@@ -1,18 +1,19 @@
 services:
   codexmanager-service:
-    image: ghcr.io/qxcnm/codexmanager-service:${CODEXMANAGER_RELEASE_TAG:?set CODEXMANAGER_RELEASE_TAG}
+    image: ghcr.io/chengliang4810/codexmanager-service:${CODEXMANAGER_RELEASE_TAG:?set CODEXMANAGER_RELEASE_TAG}
     restart: unless-stopped
     environment:
       CODEXMANAGER_SERVICE_ADDR: 0.0.0.0:48760
       CODEXMANAGER_DB_PATH: /data/codexmanager.db
       CODEXMANAGER_RPC_TOKEN_FILE: /data/codexmanager.rpc-token
+      CODEXMANAGER_WEB_ACCESS_PASSWORD: ${CODEXMANAGER_WEB_ACCESS_PASSWORD:?set CODEXMANAGER_WEB_ACCESS_PASSWORD}
     volumes:
       - codexmanager-data:/data
     ports:
       - "48760:48760"
 
   codexmanager-web:
-    image: ghcr.io/qxcnm/codexmanager-web:${CODEXMANAGER_RELEASE_TAG:?set CODEXMANAGER_RELEASE_TAG}
+    image: ghcr.io/chengliang4810/codexmanager-web:${CODEXMANAGER_RELEASE_TAG:?set CODEXMANAGER_RELEASE_TAG}
     restart: unless-stopped
     depends_on:
       codexmanager-service:
@@ -24,6 +25,7 @@ services:
       CODEXMANAGER_DB_PATH: /data/codexmanager.db
       CODEXMANAGER_RPC_TOKEN_FILE: /data/codexmanager.rpc-token
       CODEXMANAGER_WEB_NO_OPEN: "1"
+      CODEXMANAGER_WEB_ACCESS_PASSWORD: ${CODEXMANAGER_WEB_ACCESS_PASSWORD:?set CODEXMANAGER_WEB_ACCESS_PASSWORD}
     volumes:
       - codexmanager-data:/data
     ports:

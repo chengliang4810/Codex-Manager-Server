@@ -120,7 +120,7 @@ export type WorkerRecommendedSettings = {
 export const WORKER_PRESETS: WorkerPreset[] = [
   {
     key: "recommended",
-    label: "常规推荐",
+    label: "推荐",
     simpleLabel: "推荐",
     rangeLabel: "8-16 核",
     summary: "默认平衡档，适合大多数服务器和办公室电脑。",
@@ -249,6 +249,23 @@ export function normalizeWorkerRecommendation(
   };
 }
 
+export const SERVER_ENV_ALLOWED_KEYS = new Set([
+  "CODEXMANAGER_UPSTREAM_BASE_URL",
+  "CODEXMANAGER_UPSTREAM_TOTAL_TIMEOUT_MS",
+  "CODEXMANAGER_UPSTREAM_STREAM_TIMEOUT_MS",
+  "CODEXMANAGER_UPSTREAM_CONNECT_TIMEOUT_SECS",
+  "CODEXMANAGER_SSE_KEEPALIVE_INTERVAL_MS",
+  "CODEXMANAGER_PROXY_LIST",
+  "CODEXMANAGER_FRONT_PROXY_MAX_BODY_BYTES",
+  "CODEXMANAGER_HTTP_BRIDGE_OUTPUT_TEXT_LIMIT_BYTES",
+  "CODEXMANAGER_ACCOUNT_MAX_INFLIGHT",
+  "CODEXMANAGER_ROUTE_STATE_CAPACITY",
+  "CODEXMANAGER_ROUTE_STATE_TTL_SECS",
+  "CODEXMANAGER_PROMPT_CACHE_CAPACITY",
+  "CODEXMANAGER_PROMPT_CACHE_TTL_SECS",
+  "CODEXMANAGER_PROMPT_CACHE_CLEANUP_INTERVAL_SECS",
+]);
+
 export function matchesRecommendedWorkerSettings(
   snapshot: AppSettings,
   recommendation: WorkerRecommendedSettings,
@@ -269,7 +286,7 @@ export function parseIntegerInput(value: string, minimum = 0): number | null {
 }
 
 export function inferServiceBindPreview(addr: string, mode: string): string {
-  const normalizedAddr = String(addr || "").trim() || "localhost:48760";
+  const normalizedAddr = String(addr || "").trim() || "localhost:48761";
   const [, port = "48760"] = normalizedAddr.split(":");
   return mode === "all_interfaces" ? `0.0.0.0:${port}` : `localhost:${port}`;
 }
@@ -280,7 +297,7 @@ export type CheckUpdateRequest = {
 
 export function buildReleaseUrl(summary: UpdateCheckResult | null): string {
   if (!summary?.repo) {
-    return "https://github.com/qxcnm/Codex-Manager/releases";
+    return "https://github.com/chengliang4810/Codex-Manager-Server/releases";
   }
   const normalizedTag =
     summary.releaseTag ||
@@ -289,4 +306,60 @@ export function buildReleaseUrl(summary: UpdateCheckResult | null): string {
     return `https://github.com/${summary.repo}/releases`;
   }
   return `https://github.com/${summary.repo}/releases/tag/${normalizedTag}`;
+}
+
+export type ModelForwardRuleRow = {
+  source: string;
+  target: string;
+};
+
+export function parseModelForwardRuleRows(raw: string): {
+  rows: ModelForwardRuleRow[];
+  passthroughLines: string[];
+} {
+  const rows: ModelForwardRuleRow[] = [];
+  const passthroughLines: string[] = [];
+
+  for (const line of String(raw || "").split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+    if (trimmed.startsWith("#")) {
+      passthroughLines.push(trimmed);
+      continue;
+    }
+    const pair = trimmed.includes("=>")
+      ? trimmed.split("=>")
+      : trimmed.split("=");
+    if (pair.length < 2) {
+      passthroughLines.push(trimmed);
+      continue;
+    }
+    const [source, ...targetParts] = pair;
+    const target = targetParts.join(trimmed.includes("=>") ? "=>" : "=");
+    rows.push({
+      source: String(source || "").trim(),
+      target: String(target || "").trim(),
+    });
+  }
+
+  return { rows, passthroughLines };
+}
+
+export function serializeModelForwardRuleRows(
+  rows: ModelForwardRuleRow[],
+  passthroughLines: string[] = [],
+): string {
+  const normalizedRows = rows
+    .map((row) => ({
+      source: String(row?.source || "").trim(),
+      target: String(row?.target || "").trim(),
+    }))
+    .filter((row) => row.source && row.target)
+    .map((row) => `${row.source}=${row.target}`);
+
+  return [...passthroughLines.map((line) => line.trim()).filter(Boolean), ...normalizedRows].join(
+    "\n",
+  );
 }

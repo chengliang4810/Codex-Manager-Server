@@ -1,10 +1,6 @@
 import { invoke, withAddr } from "./transport";
 import {
   normalizeAccountList,
-  normalizeAggregateApiCreateResult,
-  normalizeAggregateApiList,
-  normalizeAggregateApiSecretResult,
-  normalizeAggregateApiTestResult,
   normalizeApiKeyCreateResult,
   normalizeApiKeyList,
   normalizeApiKeyUsageStats,
@@ -38,10 +34,6 @@ import { unwrapUsageSnapshotPayload } from "./usage-response";
 import {
   AccountListResult,
   AccountUsage,
-  AggregateApi,
-  AggregateApiCreateResult,
-  AggregateApiSecretResult,
-  AggregateApiTestResult,
   ApiKey,
   ApiKeyCreateResult,
   ApiKeyUsageStat,
@@ -101,7 +93,6 @@ interface ApiKeyPayload {
   upstreamBaseUrl?: string | null;
   staticHeadersJson?: string | null;
   rotationStrategy?: string | null;
-  aggregateApiId?: string | null;
   accountPlanFilter?: string | null;
 }
 
@@ -111,22 +102,6 @@ export interface ManagedModelPayload {
   userEdited?: boolean | null;
   sortIndex?: number | null;
   model: ManagedModelInfo | ModelInfo;
-}
-
-interface AggregateApiPayload {
-  providerType?: string | null;
-  supplierName?: string | null;
-  sort?: number | null;
-  status?: string | null;
-  url?: string | null;
-  key?: string | null;
-  authType?: string | null;
-  authCustomEnabled?: boolean | null;
-  authParams?: Record<string, unknown> | null;
-  actionCustomEnabled?: boolean | null;
-  action?: string | null;
-  username?: string | null;
-  password?: string | null;
 }
 
 const MAX_IMPORT_RPC_BODY_BYTES = 4 * 1024 * 1024;
@@ -448,80 +423,6 @@ export const accountClient = {
     return readChatgptAuthTokensRefreshResult(result);
   },
 
-  async listAggregateApis(): Promise<AggregateApi[]> {
-    const result = await invoke<unknown>("service_aggregate_api_list", withAddr());
-    return normalizeAggregateApiList(result);
-  },
-  async createAggregateApi(params: AggregateApiPayload): Promise<AggregateApiCreateResult> {
-    const result = await invoke<unknown>(
-      "service_aggregate_api_create",
-      withAddr({
-        providerType: params.providerType || null,
-        supplierName: params.supplierName || null,
-        sort: typeof params.sort === "number" ? params.sort : null,
-        status: params.status || null,
-        url: params.url || null,
-        key: params.key || null,
-        authType: params.authType || null,
-        authCustomEnabled:
-          typeof params.authCustomEnabled === "boolean"
-            ? params.authCustomEnabled
-            : null,
-        authParams: params.authParams || null,
-        actionCustomEnabled:
-          typeof params.actionCustomEnabled === "boolean"
-            ? params.actionCustomEnabled
-            : null,
-        action: params.action || null,
-        username: params.username || null,
-        password: params.password || null,
-      })
-    );
-    return normalizeAggregateApiCreateResult(result);
-  },
-  updateAggregateApi: (apiId: string, params: AggregateApiPayload) =>
-    invoke(
-      "service_aggregate_api_update",
-      withAddr({
-        id: apiId,
-        providerType: params.providerType || null,
-        supplierName: params.supplierName || null,
-        sort: typeof params.sort === "number" ? params.sort : null,
-        status: params.status || null,
-        url: params.url || null,
-        key: params.key || null,
-        authType: params.authType || null,
-        authCustomEnabled:
-          typeof params.authCustomEnabled === "boolean"
-            ? params.authCustomEnabled
-            : null,
-        authParams: params.authParams || null,
-        actionCustomEnabled:
-          typeof params.actionCustomEnabled === "boolean"
-            ? params.actionCustomEnabled
-            : null,
-        action: params.action || null,
-        username: params.username || null,
-        password: params.password || null,
-      })
-    ),
-  deleteAggregateApi: (apiId: string) =>
-    invoke("service_aggregate_api_delete", withAddr({ id: apiId })),
-  async readAggregateApiSecret(apiId: string): Promise<AggregateApiSecretResult> {
-    const result = await invoke<unknown>(
-      "service_aggregate_api_read_secret",
-      withAddr({ id: apiId })
-    );
-    return normalizeAggregateApiSecretResult(result);
-  },
-  async testAggregateApiConnection(apiId: string): Promise<AggregateApiTestResult> {
-    const result = await invoke<unknown>(
-      "service_aggregate_api_test_connection",
-      withAddr({ id: apiId })
-    );
-    return normalizeAggregateApiTestResult(result);
-  },
-
   async listApiKeys(): Promise<ApiKey[]> {
     const result = await invoke<unknown>("service_apikey_list", withAddr());
     return normalizeApiKeyList(result);
@@ -538,7 +439,6 @@ export const accountClient = {
         upstreamBaseUrl: params.upstreamBaseUrl || null,
         staticHeadersJson: params.staticHeadersJson || null,
         rotationStrategy: params.rotationStrategy || null,
-        aggregateApiId: params.aggregateApiId || null,
         accountPlanFilter: params.accountPlanFilter || null,
       })
     );
@@ -563,7 +463,6 @@ export const accountClient = {
         upstreamBaseUrl: params.upstreamBaseUrl || null,
         staticHeadersJson: params.staticHeadersJson || null,
         rotationStrategy: params.rotationStrategy || null,
-        aggregateApiId: params.aggregateApiId || null,
         accountPlanFilter: params.accountPlanFilter || null,
       })
     ),

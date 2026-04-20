@@ -14,9 +14,6 @@ importers:
       '@tanstack/react-query':
         specifier: ^5.90.21
         version: 5.90.21(react@19.2.3)
-      '@tauri-apps/api':
-        specifier: ^2.10.1
-        version: 2.10.1
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -776,9 +773,6 @@ packages:
     resolution: {integrity: sha512-0Lu6y5t+tvlTJMTO7oh5NSpJfpg/5D41LlThfepTixPYkJ0sE2Jj0m0f6yYqujBwIXlId87e234+MxG3D3g7kg==}
     peerDependencies:
       react: ^18 || ^19
-
-  '@tauri-apps/api@2.10.1':
-    resolution: {integrity: sha512-hKL/jWf293UDSUN09rR69hrToyIXBb8CjGaWC7gfinvnQrBVvnLr08FeFi38gxtugAVyVcTa5/FD/Xnkb1siBw==}
 
   '@ts-morph/common@0.27.0':
     resolution: {integrity: sha512-Wf29UqxWDpc+i61k3oIOzcUfQt79PIT9y/MWfAGlrkjg6lBC1hwDECLXPVJAhWjiGbfBCxZd65F/LIZF3+jeJQ==}
@@ -3756,8 +3750,6 @@ snapshots:
     dependencies:
       '@tanstack/query-core': 5.90.20
       react: 19.2.3
-
-  '@tauri-apps/api@2.10.1': {}
 
   '@ts-morph/common@0.27.0':
     dependencies:

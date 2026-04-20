@@ -59,8 +59,6 @@ import { formatCompactNumber, formatTsFromSeconds } from "@/lib/utils/usage";
 import { cn } from "@/lib/utils";
 import {
   AccountListResult,
-  AggregateApi,
-  ApiKey,
   GatewayErrorLog,
   RequestLog,
   RequestLogFilterSummary,
@@ -545,117 +543,6 @@ function resolveDisplayedStatusCode(log: RequestLog): number | null {
 }
 
 /**
- * 函数 `resolveAggregateApiDisplayName`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - log: 参数 log
- * - aggregateApi: 参数 aggregateApi
- * - apiKey: 参数 apiKey
- *
- * # 返回
- * 返回函数执行结果
- */
-function resolveAggregateApiDisplayName(
-  log: RequestLog,
-  aggregateApi: AggregateApi | null,
-  apiKey: ApiKey | null,
-): string {
-  if (log.aggregateApiSupplierName && log.aggregateApiSupplierName.trim()) {
-    return log.aggregateApiSupplierName.trim();
-  }
-  if (aggregateApi?.supplierName && aggregateApi.supplierName.trim()) {
-    return aggregateApi.supplierName.trim();
-  }
-  if (apiKey?.aggregateApiUrl) {
-    return apiKey.aggregateApiUrl.trim();
-  }
-  return "-";
-}
-
-/**
- * 函数 `resolveAggregateApiTooltipUrl`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - log: 参数 log
- * - aggregateApi: 参数 aggregateApi
- * - apiKey: 参数 apiKey
- *
- * # 返回
- * 返回函数执行结果
- */
-function resolveAggregateApiTooltipUrl(
-  log: RequestLog,
-  aggregateApi: AggregateApi | null,
-  apiKey: ApiKey | null,
-): string {
-  if (log.aggregateApiUrl && log.aggregateApiUrl.trim()) {
-    return log.aggregateApiUrl.trim();
-  }
-  if (aggregateApi?.url && aggregateApi.url.trim()) {
-    return aggregateApi.url.trim();
-  }
-  if (apiKey?.aggregateApiUrl) {
-    return apiKey.aggregateApiUrl.trim();
-  }
-  return "-";
-}
-
-/**
- * 函数 `resolveAggregateApiDisplayNameById`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - aggregateApiId: 参数 aggregateApiId
- * - aggregateApiMap: 参数 aggregateApiMap
- *
- * # 返回
- * 返回函数执行结果
- */
-function resolveAggregateApiDisplayNameById(
-  aggregateApiId: string,
-  aggregateApiMap: Map<string, AggregateApi>,
-): string {
-  const normalized = String(aggregateApiId || "").trim();
-  if (!normalized) return "";
-  const aggregateApi = aggregateApiMap.get(normalized);
-  if (aggregateApi?.supplierName && aggregateApi.supplierName.trim()) {
-    return aggregateApi.supplierName.trim();
-  }
-  if (aggregateApi?.url && aggregateApi.url.trim()) {
-    return aggregateApi.url.trim();
-  }
-  return normalized;
-}
-
-/**
- * 函数 `normalizeAggregateApiUrl`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - value: 参数 value
- *
- * # 返回
- * 返回函数执行结果
- */
-function normalizeAggregateApiUrl(value: string): string {
-  return String(value || "").trim().replace(/\/+$/, "");
-}
-
-/**
  * 函数 `formatModelEffortDisplay`
  *
  * 作者: gaohongshun
@@ -746,14 +633,10 @@ function AccountKeyInfoCell({
   log,
   accountLabel,
   accountNameMap,
-  apiKeyMap,
-  aggregateApiMap,
 }: {
   log: RequestLog;
   accountLabel: string;
   accountNameMap: Map<string, string>;
-  apiKeyMap: Map<string, ApiKey>;
-  aggregateApiMap: Map<string, AggregateApi>;
 }) {
   const { t } = useI18n();
   const displayAccount = accountLabel || log.accountId || "-";
@@ -770,132 +653,10 @@ function AccountKeyInfoCell({
     log.initialAccountId,
     accountNameMap,
   );
-  const attemptedAggregateApiLabels = log.attemptedAggregateApiIds
-    .map((aggregateApiId) =>
-      resolveAggregateApiDisplayNameById(aggregateApiId, aggregateApiMap),
-    )
-    .filter((value) => value.trim().length > 0);
-  const initialAggregateApiLabel = resolveAggregateApiDisplayNameById(
-    log.initialAggregateApiId,
-    aggregateApiMap,
-  );
-  const apiKey = apiKeyMap.get(log.keyId) || null;
-  const aggregateApiById = apiKey?.aggregateApiId
-    ? aggregateApiMap.get(apiKey.aggregateApiId) || null
-    : null;
-  /**
-   * 函数 `aggregateApiByUrl`
-   *
-   * 作者: gaohongshun
-   *
-   * 时间: 2026-04-02
-   *
-   * # 参数
-   * - (): 参数 ()
-   *
-   * # 返回
-   * 返回函数执行结果
-   */
-  const aggregateApiByUrl = (() => {
-    const upstreamUrl = normalizeAggregateApiUrl(log.upstreamUrl);
-    if (!upstreamUrl) return null;
-    for (const aggregateApi of aggregateApiMap.values()) {
-      if (normalizeAggregateApiUrl(aggregateApi.url) === upstreamUrl) {
-        return aggregateApi;
-      }
-    }
-    return null;
-  })();
-  const aggregateApi = aggregateApiById || aggregateApiByUrl;
-  const selectedAggregateApiId = aggregateApi?.id || "";
-  const isAggregateApi = Boolean(
-    log.aggregateApiSupplierName || log.aggregateApiUrl || aggregateApi,
-  );
-  const aggregateApiDisplayName = resolveAggregateApiDisplayName(
-    log,
-    aggregateApi,
-    apiKey,
-  );
-  const aggregateApiDisplayUrl = resolveAggregateApiTooltipUrl(
-    log,
-    aggregateApi,
-    apiKey,
-  );
   const showAttemptHint =
     attemptedAccountLabels.length > 1 &&
     initialAccountLabel &&
     initialAccountLabel !== displayAccount;
-  const showAggregateAttemptHint =
-    attemptedAggregateApiLabels.length > 1 &&
-    initialAggregateApiLabel &&
-    String(log.initialAggregateApiId || "").trim() !== selectedAggregateApiId;
-
-  if (isAggregateApi) {
-    return (
-      <Tooltip>
-        <TooltipTrigger render={<div />} className="block text-left">
-          <div className="flex max-w-[180px] flex-col gap-0.5 opacity-80">
-            <div className="flex items-center gap-1">
-              <Database className="h-3 w-3 text-primary" />
-              <span className="truncate text-[11px] font-medium">
-                {aggregateApiDisplayName}
-              </span>
-            </div>
-            <div className="truncate font-mono text-[9px] text-muted-foreground">
-              {aggregateApiDisplayUrl}
-            </div>
-            <div className="flex items-center gap-1 text-[9px] text-muted-foreground">
-              <Shield className="h-2.5 w-2.5" />
-              <span className="font-mono">{formatCompactKeyLabel(log.keyId)}</span>
-            </div>
-            {showAggregateAttemptHint ? (
-              <div className="text-[9px] text-amber-500">
-                {t("先试")} {initialAggregateApiLabel}
-              </div>
-            ) : null}
-          </div>
-        </TooltipTrigger>
-        <TooltipContent className="max-w-sm">
-          <div className="flex min-w-[240px] flex-col gap-2">
-            <div className="space-y-0.5">
-              <div className="text-[10px] text-background/70">{t("供应商名称")}</div>
-              <div className="break-all font-mono text-[11px]">
-                {aggregateApiDisplayName}
-              </div>
-            </div>
-            <div className="space-y-0.5">
-              <div className="text-[10px] text-background/70">URL</div>
-              <div className="break-all font-mono text-[11px]">
-                {aggregateApiDisplayUrl}
-              </div>
-            </div>
-            <div className="space-y-0.5">
-              <div className="text-[10px] text-background/70">{t("密钥")}</div>
-              <div className="break-all font-mono text-[11px]">
-                {log.keyId || "-"}
-              </div>
-            </div>
-            {attemptedAggregateApiLabels.length > 1 ? (
-              <div className="space-y-0.5">
-                <div className="text-[10px] text-background/70">{t("尝试链路")}</div>
-                <div className="break-all font-mono text-[11px]">
-                  {attemptedAggregateApiLabels.join(" -> ")}
-                </div>
-              </div>
-            ) : null}
-            {initialAggregateApiLabel ? (
-              <div className="space-y-0.5">
-                <div className="text-[10px] text-background/70">{t("首尝试渠道")}</div>
-                <div className="break-all font-mono text-[11px]">
-                  {initialAggregateApiLabel}
-                </div>
-              </div>
-            ) : null}
-          </div>
-        </TooltipContent>
-      </Tooltip>
-    );
-  }
 
   return (
     <Tooltip>
@@ -1358,24 +1119,6 @@ function LogsPageContent() {
         : undefined),
   });
 
-  const { data: apiKeysResult } = useQuery({
-    queryKey: ["apikeys", "lookup"],
-    queryFn: () => accountClient.listApiKeys(),
-    enabled: areLogQueriesEnabled && isPageActive,
-    staleTime: 60_000,
-    retry: 1,
-    placeholderData: (previousData): ApiKey[] | undefined =>
-      previousData || (startupApiKeys.length > 0 ? startupApiKeys : undefined),
-  });
-
-  const { data: aggregateApisResult } = useQuery({
-    queryKey: ["aggregate-apis", "lookup"],
-    queryFn: () => accountClient.listAggregateApis(),
-    enabled: areLogQueriesEnabled && isPageActive,
-    staleTime: 60_000,
-    retry: 1,
-  });
-
   const { data: logsResult, isLoading, isError: isLogsError } = useQuery({
     queryKey: ["logs", "list", search, filter, startTs, endTs, page, pageSizeNumber],
     queryFn: () =>
@@ -1477,19 +1220,6 @@ function LogsPageContent() {
       ]),
     );
   }, [accountsResult?.items]);
-
-  const apiKeyMap = useMemo(() => {
-    return new Map((apiKeysResult || []).map((apiKey) => [apiKey.id, apiKey]));
-  }, [apiKeysResult]);
-
-  const aggregateApiMap = useMemo(() => {
-    return new Map(
-      (aggregateApisResult || []).map((aggregateApi) => [
-        aggregateApi.id,
-        aggregateApi,
-      ]),
-    );
-  }, [aggregateApisResult]);
 
   const logs = logsResult?.items || [];
   const isLogsLoading =
@@ -1951,8 +1681,6 @@ function LogsPageContent() {
                           accountNameMap,
                         )}
                         accountNameMap={accountNameMap}
-                        apiKeyMap={apiKeyMap}
-                        aggregateApiMap={aggregateApiMap}
                       />
                     </TableCell>
                     <TableCell className="px-4 py-3 align-top">

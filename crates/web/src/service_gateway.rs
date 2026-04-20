@@ -311,6 +311,95 @@ pub(super) async fn rpc_proxy(
     out
 }
 
+/// 函数 `gateway_proxy`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-17
+///
+/// # 参数
+/// - state: 参数 state
+/// - request: 参数 request
+///
+/// # 返回
+/// 返回函数执行结果
+pub(super) async fn gateway_proxy(
+    State(state): State<Arc<AppState>>,
+    request: Request,
+) -> Response {
+    let (parts, body) = request.into_parts();
+    let path_and_query = parts
+        .uri
+        .path_and_query()
+        .map(|value| value.as_str())
+        .unwrap_or("/");
+    let upstream_url = format!("http://{}{}", state.service_addr, path_and_query);
+
+    let body_bytes = match axum::body::to_bytes(body, usize::MAX).await {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                format!("failed to read request body: {err}"),
+            )
+                .into_response();
+        }
+    };
+
+    let mut builder = state
+        .client
+        .request(parts.method.clone(), upstream_url)
+        .body(body_bytes.clone());
+
+    for (name, value) in &parts.headers {
+        if name == header::HOST
+            || name == header::CONTENT_LENGTH
+            || name == header::CONNECTION
+            || name == header::TRANSFER_ENCODING
+            || name == header::UPGRADE
+        {
+            continue;
+        }
+        builder = builder.header(name, value);
+    }
+
+    let resp = match builder.send().await {
+        Ok(v) => v,
+        Err(err) => {
+            let msg = format_upstream_error_message(state.service_addr.as_str(), &err);
+            return (StatusCode::BAD_GATEWAY, msg).into_response();
+        }
+    };
+
+    let status = resp.status();
+    let response_headers = resp.headers().clone();
+    let mut out = Response::new(axum::body::Body::from(match resp.bytes().await {
+        Ok(v) => v,
+        Err(err) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                format!("upstream read error: {err}"),
+            )
+                .into_response();
+        }
+    }));
+    *out.status_mut() = status;
+
+    let headers_mut = out.headers_mut();
+    for (name, value) in &response_headers {
+        if name == header::CONTENT_LENGTH
+            || name == header::CONNECTION
+            || name == header::TRANSFER_ENCODING
+            || name == header::UPGRADE
+        {
+            continue;
+        }
+        headers_mut.insert(name, value.clone());
+    }
+
+    out
+}
+
 /// 函数 `format_upstream_error_message`
 ///
 /// 作者: gaohongshun

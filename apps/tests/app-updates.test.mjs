@@ -29,91 +29,66 @@ async function loadAppUpdatesModule() {
 
 const appUpdates = await loadAppUpdatesModule();
 
-test("readUpdateCheckResult 解析更新检查结果并保留可空字段", () => {
-  const result = appUpdates.readUpdateCheckResult({
-    repo: "team/project",
-    mode: "stable",
-    isPortable: true,
-    hasUpdate: true,
-    canPrepare: true,
-    currentVersion: "1.0.0",
-    latestVersion: "1.1.0",
-    releaseTag: "v1.1.0",
-    releaseName: "Spring",
-    publishedAt: "2026-04-13T10:00:00Z",
-    checkedAtUnixSecs: "123456",
+test("compareVersions 识别新版本大于当前版本", () => {
+  assert.equal(appUpdates.compareVersions("0.2.4", "v0.2.5") < 0, true);
+  assert.equal(appUpdates.compareVersions("v0.2.5", "0.2.5"), 0);
+  assert.equal(appUpdates.compareVersions("0.3.0", "0.2.9") > 0, true);
+});
+
+test("readRuntimeVersionInfo 统一解析服务端版本元数据", () => {
+  const result = appUpdates.readRuntimeVersionInfo({
+    version: "0.2.5",
+    releaseTag: "v0.2.5",
+    repository: "chengliang4810/Codex-Manager-Server",
+    builtAt: "2026-04-17T12:00:00Z",
   });
 
-  assert.equal(result.repo, "team/project");
-  assert.equal(result.mode, "stable");
-  assert.equal(result.isPortable, true);
+  assert.equal(result.version, "0.2.5");
+  assert.equal(result.releaseTag, "v0.2.5");
+  assert.equal(result.repository, "chengliang4810/Codex-Manager-Server");
+  assert.equal(result.builtAt, "2026-04-17T12:00:00Z");
+});
+
+test("buildUpdateCheckResult 生成仅检查版本的服务端更新结果", () => {
+  const result = appUpdates.buildUpdateCheckResult(
+    {
+      version: "0.2.4",
+      releaseTag: "v0.2.4",
+      repository: "chengliang4810/Codex-Manager-Server",
+      builtAt: "2026-04-17T12:00:00Z",
+    },
+    {
+      tag_name: "v0.2.5",
+      name: "CodexManager Server v0.2.5",
+      published_at: "2026-04-17T13:00:00Z",
+    },
+    123456
+  );
+
+  assert.equal(result.repo, "chengliang4810/Codex-Manager-Server");
+  assert.equal(result.mode, "web-release");
+  assert.equal(result.isPortable, false);
+  assert.equal(result.canPrepare, false);
+  assert.equal(result.currentVersion, "0.2.4");
+  assert.equal(result.latestVersion, "0.2.5");
+  assert.equal(result.releaseTag, "v0.2.5");
+  assert.equal(result.releaseName, "CodexManager Server v0.2.5");
+  assert.equal(result.publishedAt, "2026-04-17T13:00:00Z");
   assert.equal(result.hasUpdate, true);
-  assert.equal(result.canPrepare, true);
-  assert.equal(result.currentVersion, "1.0.0");
-  assert.equal(result.latestVersion, "1.1.0");
-  assert.equal(result.releaseTag, "v1.1.0");
-  assert.equal(result.releaseName, "Spring");
-  assert.equal(result.publishedAt, "2026-04-13T10:00:00Z");
-  assert.equal(result.reason, null);
   assert.equal(result.checkedAtUnixSecs, 123456);
 });
 
-test("readUpdatePrepareResult 与 readUpdateActionResult 统一补齐结果", () => {
-  const prepare = appUpdates.readUpdatePrepareResult({
-    prepared: true,
-    mode: "stable",
-    isPortable: false,
-    releaseTag: "v1.1.0",
-    latestVersion: "1.1.0",
-    assetName: "CodexManager-Setup.exe",
-    assetPath: "C:/updates/setup.exe",
-    downloaded: true,
-  });
-  assert.equal(prepare.prepared, true);
-  assert.equal(prepare.isPortable, false);
-  assert.equal(prepare.assetName, "CodexManager-Setup.exe");
-
-  const action = appUpdates.readUpdateActionResult({
-    ok: true,
-    message: "ready",
-  });
-  assert.equal(action.ok, true);
-  assert.equal(action.message, "ready");
-});
-
-test("readUpdateStatusResult 统一解析 pending 与 lastCheck", () => {
-  const status = appUpdates.readUpdateStatusResult({
-    repo: "team/project",
-    mode: "stable",
-    isPortable: true,
-    currentVersion: "1.0.0",
-    currentExePath: "C:/CodexManager.exe",
-    portableMarkerPath: "C:/portable.flag",
-    pending: {
-      mode: "stable",
-      isPortable: true,
-      releaseTag: "v1.1.0",
-      latestVersion: "1.1.0",
-      assetName: "CodexManager.zip",
-      assetPath: "C:/updates/CodexManager.zip",
-      installerPath: null,
-      stagingDir: "C:/updates/staging",
-      preparedAtUnixSecs: 999,
-    },
-    lastCheck: {
-      hasUpdate: true,
-      latestVersion: "1.1.0",
-      releaseTag: "v1.1.0",
-    },
-    lastError: "network",
+test("buildInjectedRuntimeVersionInfo 从前端注入环境生成开发态版本元数据", () => {
+  const result = appUpdates.buildInjectedRuntimeVersionInfo({
+    NEXT_PUBLIC_CODEXMANAGER_RELEASE_VERSION: "0.2.4",
+    NEXT_PUBLIC_CODEXMANAGER_RELEASE_TAG: "v0.2.4",
+    NEXT_PUBLIC_CODEXMANAGER_RELEASE_REPOSITORY:
+      "chengliang4810/Codex-Manager-Server",
+    NEXT_PUBLIC_CODEXMANAGER_RELEASE_BUILT_AT: "next-dev",
   });
 
-  assert.equal(status.repo, "team/project");
-  assert.equal(status.pending?.prepared, true);
-  assert.equal(status.pending?.downloaded, true);
-  assert.equal(status.pending?.stagingDir, "C:/updates/staging");
-  assert.equal(status.pending?.preparedAtUnixSecs, 999);
-  assert.equal(status.lastCheck?.hasUpdate, true);
-  assert.equal(status.lastCheck?.latestVersion, "1.1.0");
-  assert.equal(status.lastError, "network");
+  assert.equal(result.version, "0.2.4");
+  assert.equal(result.releaseTag, "v0.2.4");
+  assert.equal(result.repository, "chengliang4810/Codex-Manager-Server");
+  assert.equal(result.builtAt, "next-dev");
 });

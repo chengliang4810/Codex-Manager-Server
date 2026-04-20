@@ -12,7 +12,7 @@ import {
 } from "@/lib/appearance";
 
 export const metadata: Metadata = {
-  title: "CodexManager",
+  title: "CodexManagerServer",
   description: "Account pool and usage management for Codex",
 };
 

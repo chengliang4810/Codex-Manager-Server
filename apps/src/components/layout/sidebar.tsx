@@ -5,19 +5,19 @@ import {
   Users, 
   Key, 
   Boxes,
-  Database,
   Puzzle,
   FileText, 
   Settings, 
-  UserRound,
   ChevronLeft, 
   ChevronRight
 } from "lucide-react";
+import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { buildStaticRouteUrl } from "@/lib/utils/static-routes";
 import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/lib/store/useAppStore";
 import { useI18n } from "@/lib/i18n/provider";
+import { resolveRenderableShellState } from "@/lib/app-shell/render-state";
 import {
   memo,
   useCallback,
@@ -28,13 +28,11 @@ import {
 const NAV_ITEMS = [
   { label: "仪表盘", href: "/", icon: LayoutDashboard },
   { label: "账号管理", href: "/accounts", icon: Users },
-  { label: "聚合API", href: "/aggregate-api", icon: Database },
   { label: "平台密钥", href: "/apikeys", icon: Key },
   { label: "模型管理", href: "/models", icon: Boxes },
   { label: "插件中心", href: "/plugins", icon: Puzzle },
   { label: "请求日志", href: "/logs", icon: FileText },
   { label: "设置", href: "/settings", icon: Settings },
-  { label: "关于作者", href: "/author", icon: UserRound },
 ];
 
 const NavItem = memo(({
@@ -81,13 +79,18 @@ NavItem.displayName = "NavItem";
  */
 export function Sidebar() {
   const { t } = useI18n();
+  const pathname = usePathname();
   const {
     isSidebarOpen,
     toggleSidebar,
-    openCodexCliGuide,
     currentShellPath,
     navigateShellPath,
   } = useAppStore();
+  const renderState = resolveRenderableShellState(
+    currentShellPath,
+    [currentShellPath],
+    pathname,
+  );
 
   const handleNavigate = useCallback(
     (href: string, event: MouseEvent<HTMLAnchorElement>) => {
@@ -102,7 +105,7 @@ export function Sidebar() {
         return;
       }
 
-      if (href === currentShellPath) {
+      if (href === renderState.currentPath) {
         event.preventDefault();
         return;
       }
@@ -110,7 +113,7 @@ export function Sidebar() {
       event.preventDefault();
       navigateShellPath(href);
     },
-    [currentShellPath, navigateShellPath],
+    [navigateShellPath, renderState.currentPath],
   );
 
   const renderedItems = useMemo(() => 
@@ -119,12 +122,12 @@ export function Sidebar() {
         key={item.href} 
         item={item} 
         itemName={t(item.label)}
-        isActive={item.href === currentShellPath} 
+        isActive={item.href === renderState.currentPath} 
         isSidebarOpen={isSidebarOpen}
         onNavigate={handleNavigate}
       />
     )),
-    [currentShellPath, handleNavigate, isSidebarOpen, t]
+    [handleNavigate, isSidebarOpen, renderState.currentPath, t]
   );
 
   return (
@@ -135,23 +138,17 @@ export function Sidebar() {
       )}
     >
       <div className="flex h-16 items-center border-b px-4 shrink-0">
-        <button
-          type="button"
-          onClick={openCodexCliGuide}
-          title={t("重新打开 Codex CLI 引导")}
-          aria-label={t("重新打开 Codex CLI 引导")}
-          className="flex w-full items-center gap-2 overflow-hidden rounded-xl px-2 py-1.5 text-left transition-colors duration-200 hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-        >
+        <div className="flex w-full items-center gap-2 overflow-hidden rounded-xl px-2 py-1.5 text-left">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <span className="text-sm font-bold">CM</span>
           </div>
           {isSidebarOpen && (
             <div className="flex flex-col overflow-hidden animate-in fade-in duration-300">
-              <span className="text-sm font-bold truncate">CodexManager</span>
+              <span className="text-sm font-bold truncate">CodexManagerServer</span>
               <span className="text-xs text-muted-foreground truncate opacity-70">{t("账号池 · 用量管理")}</span>
             </div>
           )}
-        </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto py-4">

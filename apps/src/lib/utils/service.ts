@@ -4,6 +4,15 @@ import { ServiceInitializationResult } from "@/types";
 
 const LOOPBACK_PROXY_HINT = "若开启全局代理，请将 localhost/127.0.0.1/::1 设为直连";
 
+export function getDefaultBrowserGatewayAddr(): string {
+  if (typeof window === "undefined") {
+    return "localhost:48761";
+  }
+
+  const host = window.location.host?.trim();
+  return host || "localhost:48761";
+}
+
 /**
  * 函数 `asRecord`
  *
@@ -39,7 +48,7 @@ function asRecord(payload: unknown): Record<string, unknown> {
 export function normalizeServiceAddr(raw: string): string {
   const trimmed = String(raw || "").trim();
   if (!trimmed) {
-    throw new Error("请输入端口或地址");
+    return getDefaultBrowserGatewayAddr();
   }
 
   let value = trimmed;

@@ -113,17 +113,22 @@ fn compile_windows_icon(manifest_dir: &Path) {
         return;
     }
 
-    let icon_path = manifest_dir.join("../../apps/src-tauri/icons/icon.ico");
+    let icon_path = manifest_dir.join("../../assets/icons/icon.ico");
     println!("cargo:rerun-if-changed={}", icon_path.display());
 
     if !icon_path.is_file() {
-        panic!("Windows icon not found: {}", icon_path.display());
+        println!(
+            "cargo:warning=Windows icon not found, skip embedding: {}",
+            icon_path.display()
+        );
+        return;
     }
 
     let mut res = winres::WindowsResource::new();
     res.set_icon(icon_path.to_string_lossy().as_ref());
-    res.compile()
-        .expect("failed to compile Windows resources (icon)");
+    if let Err(err) = res.compile() {
+        println!("cargo:warning=failed to compile Windows icon resources: {err}");
+    }
 }
 
 /// 函数 `compile_windows_icon`

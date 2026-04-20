@@ -13,3 +13,17 @@
 fn core_version_is_set() {
     assert!(!codexmanager_core::core_version().is_empty());
 }
+
+#[test]
+fn release_repository_defaults_to_current_fork() {
+    assert_eq!(
+        codexmanager_core::release_repository(),
+        "chengliang4810/Codex-Manager-Server"
+    );
+}
+
+#[test]
+fn release_tag_defaults_to_v_prefixed_version() {
+    let version = codexmanager_core::core_version();
+    assert_eq!(codexmanager_core::release_tag(), format!("v{version}"));
+}

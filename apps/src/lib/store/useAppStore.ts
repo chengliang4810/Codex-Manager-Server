@@ -9,6 +9,7 @@ import {
   toTopLevelRoutePath,
 } from "../app-shell/top-level-routes";
 import { buildStaticRouteUrl } from "../utils/static-routes";
+import { getDefaultBrowserGatewayAddr } from "../utils/service";
 
 interface AppState {
   serviceStatus: ServiceStatus;
@@ -31,15 +32,14 @@ interface AppState {
   closeShellTab: (path: string) => TopLevelRoutePath | null;
 }
 
-const initialShellPath =
-  typeof window === "undefined" ? "/" : toTopLevelRoutePath(window.location.pathname);
+const initialShellPath: TopLevelRoutePath = "/";
 
 export const useAppStore = create<AppState>((set) => ({
   serviceStatus: {
     connected: false,
     version: "",
     uptime: 0,
-    addr: "localhost:48760",
+    addr: getDefaultBrowserGatewayAddr(),
   },
   appSettings: {
     updateAutoCheck: true,
@@ -51,7 +51,7 @@ export const useAppStore = create<AppState>((set) => ({
     webAccessPasswordConfigured: false,
     locale: "zh-CN",
     localeOptions: ["zh-CN", "en", "ru", "ko"],
-    serviceAddr: "localhost:48760",
+    serviceAddr: getDefaultBrowserGatewayAddr(),
     serviceListenMode: "loopback",
     serviceListenModeOptions: ["loopback", "all_interfaces"],
     routeStrategy: "ordered",

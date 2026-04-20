@@ -3,11 +3,17 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.service
+      args:
+        RELEASE_VERSION: ${CODEXMANAGER_RELEASE_VERSION:-0.2.4}
+        RELEASE_TAG: ${CODEXMANAGER_RELEASE_TAG:-v0.2.4}
+        RELEASE_REPOSITORY: ${CODEXMANAGER_RELEASE_REPOSITORY:-chengliang4810/Codex-Manager-Server}
+        RELEASE_BUILT_AT: ${CODEXMANAGER_RELEASE_BUILT_AT:-local-compose}
     restart: unless-stopped
     environment:
       CODEXMANAGER_SERVICE_ADDR: 0.0.0.0:48760
       CODEXMANAGER_DB_PATH: /data/codexmanager.db
       CODEXMANAGER_RPC_TOKEN_FILE: /data/codexmanager.rpc-token
+      CODEXMANAGER_WEB_ACCESS_PASSWORD: ${CODEXMANAGER_WEB_ACCESS_PASSWORD:-admin123}
     volumes:
       - codexmanager-data:/data
     ports:
@@ -17,6 +23,11 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.web
+      args:
+        RELEASE_VERSION: ${CODEXMANAGER_RELEASE_VERSION:-0.2.4}
+        RELEASE_TAG: ${CODEXMANAGER_RELEASE_TAG:-v0.2.4}
+        RELEASE_REPOSITORY: ${CODEXMANAGER_RELEASE_REPOSITORY:-chengliang4810/Codex-Manager-Server}
+        RELEASE_BUILT_AT: ${CODEXMANAGER_RELEASE_BUILT_AT:-local-compose}
     restart: unless-stopped
     depends_on:
       codexmanager-service:
@@ -28,6 +39,7 @@ services:
       CODEXMANAGER_DB_PATH: /data/codexmanager.db
       CODEXMANAGER_RPC_TOKEN_FILE: /data/codexmanager.rpc-token
       CODEXMANAGER_WEB_NO_OPEN: "1"
+      CODEXMANAGER_WEB_ACCESS_PASSWORD: ${CODEXMANAGER_WEB_ACCESS_PASSWORD:-admin123}
     volumes:
       - codexmanager-data:/data
     ports:

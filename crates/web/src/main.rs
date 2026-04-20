@@ -21,7 +21,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use rand::RngCore;
 use tokio::sync::{watch, Mutex};
-use tower_http::services::{ServeDir, ServeFile};
+use tower_http::services::ServeDir;
 
 const WEB_AUTH_COOKIE_NAME: &str = "codexmanager_web_auth";
 
@@ -363,16 +363,32 @@ fn escape_html(text: &str) -> String {
 /// # 返回
 /// 返回函数执行结果
 async fn runtime_info() -> impl IntoResponse {
+    let release = codexmanager_service::release_metadata();
     Json(serde_json::json!({
         "mode": "web-gateway",
         "rpcBaseUrl": "/api/rpc",
-        "canManageService": false,
-        "canSelfUpdate": false,
-        "canCloseToTray": false,
-        "canOpenLocalDir": false,
         "canUseBrowserFileImport": true,
-        "canUseBrowserDownloadExport": true
+        "canUseBrowserDownloadExport": true,
+        "currentVersion": release.version,
+        "releaseTag": release.release_tag,
+        "releaseRepository": release.repository,
+        "builtAt": release.built_at
     }))
+}
+
+/// 函数 `version_info`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-17
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 返回函数执行结果
+async fn version_info() -> impl IntoResponse {
+    Json(codexmanager_service::release_metadata())
 }
 
 /// 函数 `serve_on_listener`
@@ -510,9 +526,7 @@ async fn async_main() {
     let using_explicit_root = read_env_trim("CODEXMANAGER_WEB_ROOT").is_some();
     if using_explicit_root || disk_ok {
         if disk_ok {
-            let static_service = ServeDir::new(&web_root)
-                .append_index_html_on_directories(true)
-                .not_found_service(ServeFile::new(index));
+            let static_service = ServeDir::new(&web_root).append_index_html_on_directories(true);
             protected_app = protected_app.fallback_service(static_service);
         } else {
             protected_app = protected_app
@@ -535,6 +549,10 @@ async fn async_main() {
     ));
     let app = Router::new()
         .route("/api/runtime", get(runtime_info))
+        .route("/api/version", get(version_info))
+        .route("/v1/{*path}", post(service_gateway::gateway_proxy).get(service_gateway::gateway_proxy))
+        .route("/health", get(service_gateway::gateway_proxy))
+        .route("/metrics", get(service_gateway::gateway_proxy))
         .route("/__auth_status", get(auth::auth_status))
         .route("/__login", get(auth::login_page).post(auth::login_submit))
         .route("/__logout", get(auth::logout).post(auth::logout))
@@ -716,11 +734,43 @@ mod tests {
 
         assert_eq!(payload["mode"], "web-gateway");
         assert_eq!(payload["rpcBaseUrl"], "/api/rpc");
-        assert_eq!(payload["canManageService"], false);
-        assert_eq!(payload["canSelfUpdate"], false);
-        assert_eq!(payload["canCloseToTray"], false);
-        assert_eq!(payload["canOpenLocalDir"], false);
         assert_eq!(payload["canUseBrowserFileImport"], true);
         assert_eq!(payload["canUseBrowserDownloadExport"], true);
+        assert!(payload["currentVersion"].is_string());
+        assert!(payload["releaseTag"].is_string());
+        assert_eq!(
+            payload["releaseRepository"],
+            codexmanager_service::release_repository()
+        );
+    }
+
+    /// 函数 `version_info_reports_release_metadata`
+    ///
+    /// 作者: gaohongshun
+    ///
+    /// 时间: 2026-04-17
+    ///
+    /// # 参数
+    /// 无
+    ///
+    /// # 返回
+    /// 无
+    #[tokio::test]
+    async fn version_info_reports_release_metadata() {
+        let response = version_info().await.into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let bytes = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("read version response body");
+        let payload: serde_json::Value =
+            serde_json::from_slice(&bytes).expect("parse version response json");
+
+        assert_eq!(payload["version"], codexmanager_service::core_version());
+        assert_eq!(payload["releaseTag"], codexmanager_service::release_tag());
+        assert_eq!(
+            payload["repository"],
+            codexmanager_service::release_repository()
+        );
     }
 }

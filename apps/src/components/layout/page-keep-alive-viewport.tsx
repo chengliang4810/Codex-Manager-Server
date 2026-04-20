@@ -16,6 +16,7 @@ import {
   getTopLevelRouteLabel,
   toTopLevelRoutePath,
 } from "@/lib/app-shell/top-level-routes";
+import { resolveRenderableShellState } from "@/lib/app-shell/render-state";
 import { useI18n } from "@/lib/i18n/provider";
 import { useAppStore } from "@/lib/store/useAppStore";
 import { cn } from "@/lib/utils";
@@ -27,45 +28,25 @@ const LAZY_PAGE_COMPONENTS: Record<
   LazyExoticComponent<ComponentType>
 > = {
   "/accounts": lazy(() => import("@/app/accounts/page")),
-  "/aggregate-api": lazy(() => import("@/app/aggregate-api/page")),
   "/apikeys": lazy(() => import("@/app/apikeys/page")),
   "/models": lazy(() => import("@/app/models/page")),
   "/plugins": lazy(() => import("@/app/plugins/page")),
   "/logs": lazy(() => import("@/app/logs/page")),
   "/settings": lazy(() => import("@/app/settings/page")),
-  "/author": lazy(() => import("@/app/author/page")),
 };
 
 const ROOT_PAGE_COMPONENT = lazy(() => import("@/app/page"));
 
 function PagePanelFallback({ title }: { title: string }) {
-  const isSidebarOpen = useAppStore((state) => state.isSidebarOpen);
-
   return (
-    <div
-      className={cn(
-        "fixed inset-y-0 right-0 z-40 overflow-hidden bg-white/28 backdrop-blur-md",
-        isSidebarOpen ? "left-56" : "left-16",
-      )}
-    >
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(168,85,247,0.14),_transparent_42%)]" />
-      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.16)_0%,rgba(255,255,255,0.04)_24%,rgba(255,255,255,0.24)_100%)]" />
-      <div className="relative flex h-full w-full items-start justify-center px-8 pt-[31vh]">
-        <div className="flex w-full max-w-2xl flex-col items-center gap-5 text-center">
-          <div className="flex h-20 w-20 items-center justify-center rounded-full bg-background/55 text-primary shadow-[0_18px_50px_rgba(168,85,247,0.16)] ring-1 ring-white/45 backdrop-blur-sm">
-            <Loader2 className="h-10 w-10 animate-spin" />
-          </div>
-          <div className="space-y-2">
-            <p className="text-2xl font-semibold tracking-tight text-foreground/95">{title}</p>
-            <p className="text-sm text-muted-foreground">正在恢复页面内容，请稍候...</p>
-          </div>
-          <div className="h-2.5 w-full max-w-xl overflow-hidden rounded-full bg-white/45 shadow-[inset_0_1px_2px_rgba(15,23,42,0.08)]">
-            <div className="h-full w-2/5 animate-pulse rounded-full bg-primary/70" />
-          </div>
-          <div className="inline-flex items-center gap-2 rounded-full bg-background/45 px-3 py-1.5 text-xs text-muted-foreground shadow-sm ring-1 ring-white/40 backdrop-blur-sm">
-            <span className="h-2 w-2 rounded-full bg-primary/75" />
-            <span>页面缓存已命中，正在恢复视图与数据状态</span>
-          </div>
+    <div className="flex min-h-[240px] items-center justify-center rounded-3xl border border-border/50 bg-background/35 p-8">
+      <div className="flex flex-col items-center gap-3 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+          <Loader2 className="h-5 w-5 animate-spin" />
+        </div>
+        <div className="space-y-1">
+          <p className="text-base font-semibold text-foreground">{title}</p>
+          <p className="text-sm text-muted-foreground">正在加载页面内容...</p>
         </div>
       </div>
     </div>
@@ -89,7 +70,7 @@ export function PageKeepAliveViewport({
 }) {
   const { t } = useI18n();
   const pathname = usePathname();
-  const [normalizedInitialPath] = useState<TopLevelRoutePath>(() =>
+  const [initialRoutePath] = useState<TopLevelRoutePath>(() =>
     toTopLevelRoutePath(pathname),
   );
   const currentShellPath = useAppStore((state) => state.currentShellPath);
@@ -97,10 +78,15 @@ export function PageKeepAliveViewport({
   const syncShellPathFromLocation = useAppStore(
     (state) => state.syncShellPathFromLocation,
   );
+  const renderState = resolveRenderableShellState(
+    currentShellPath,
+    openShellTabs,
+    pathname,
+  );
 
   useEffect(() => {
-    syncShellPathFromLocation(normalizedInitialPath);
-  }, [normalizedInitialPath, syncShellPathFromLocation]);
+    syncShellPathFromLocation(pathname);
+  }, [pathname, syncShellPathFromLocation]);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -114,15 +100,15 @@ export function PageKeepAliveViewport({
   }, [syncShellPathFromLocation]);
 
   useEffect(() => {
-    document.title = `${t(getTopLevelRouteLabel(currentShellPath))} - CodexManager`;
-  }, [currentShellPath, t]);
+    document.title = `${t(getTopLevelRouteLabel(renderState.currentPath))} - CodexManagerServer`;
+  }, [renderState.currentPath, t]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="relative min-h-0 flex-1">
-        {openShellTabs.map((path) => {
-          const isActive = path === currentShellPath;
-          const isInitialPanel = path === normalizedInitialPath;
+        {renderState.tabs.map((path) => {
+          const isActive = path === renderState.currentPath;
+          const isInitialPanel = path === initialRoutePath;
 
           return (
             <section

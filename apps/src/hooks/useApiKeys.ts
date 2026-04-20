@@ -150,8 +150,6 @@ export function useApiKeys() {
                     ...item,
                     rotationStrategy:
                       variables.params.rotationStrategy ?? item.rotationStrategy,
-                    aggregateApiId:
-                      variables.params.aggregateApiId ?? item.aggregateApiId,
                     accountPlanFilter:
                       variables.params.accountPlanFilter ?? item.accountPlanFilter,
                   }

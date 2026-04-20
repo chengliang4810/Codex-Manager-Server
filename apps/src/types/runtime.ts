@@ -1,17 +1,12 @@
 export type AvailabilityLevel = "ok" | "warn" | "bad" | "unknown";
 
-export type RuntimeMode = "desktop-tauri" | "web-gateway" | "unsupported-web";
+export type RuntimeMode = "web-gateway";
 
 export interface RuntimeCapabilities {
   mode: RuntimeMode;
   rpcBaseUrl: string;
-  canManageService: boolean;
-  canSelfUpdate: boolean;
-  canCloseToTray: boolean;
-  canOpenLocalDir: boolean;
   canUseBrowserFileImport: boolean;
   canUseBrowserDownloadExport: boolean;
-  unsupportedReason?: string | null;
 }
 
 export interface ServiceStatus {

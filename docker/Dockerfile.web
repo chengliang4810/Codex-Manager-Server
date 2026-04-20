@@ -16,6 +16,16 @@ FROM rust:1-bookworm AS builder
 
 WORKDIR /src
 
+ARG RELEASE_VERSION=0.0.0
+ARG RELEASE_TAG=v0.0.0
+ARG RELEASE_REPOSITORY=chengliang4810/Codex-Manager-Server
+ARG RELEASE_BUILT_AT=unknown
+
+ENV CODEXMANAGER_RELEASE_VERSION=${RELEASE_VERSION}
+ENV CODEXMANAGER_RELEASE_TAG=${RELEASE_TAG}
+ENV CODEXMANAGER_RELEASE_REPOSITORY=${RELEASE_REPOSITORY}
+ENV CODEXMANAGER_RELEASE_BUILT_AT=${RELEASE_BUILT_AT}
+
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 
@@ -27,6 +37,10 @@ FROM debian:bookworm-slim
 
 ARG APP_USER=codexmanager
 ARG APP_UID=10001
+ARG RELEASE_VERSION=0.0.0
+ARG RELEASE_TAG=v0.0.0
+ARG RELEASE_REPOSITORY=chengliang4810/Codex-Manager-Server
+ARG RELEASE_BUILT_AT=unknown
 
 WORKDIR /app
 
@@ -39,6 +53,10 @@ RUN apt-get update \
     && chown -R ${APP_UID}:${APP_UID} /app /data
 
 COPY --from=builder /src/target/release/codexmanager-web /usr/local/bin/codexmanager-web
+
+RUN printf '{\n  "version": "%s",\n  "releaseTag": "%s",\n  "repository": "%s",\n  "builtAt": "%s"\n}\n' \
+      "$RELEASE_VERSION" "$RELEASE_TAG" "$RELEASE_REPOSITORY" "$RELEASE_BUILT_AT" \
+      > /app/version.json
 
 ENV CODEXMANAGER_WEB_ADDR=0.0.0.0:48761
 ENV CODEXMANAGER_WEB_NO_SPAWN_SERVICE=1

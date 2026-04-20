@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod release;
 pub mod rpc;
 pub mod storage;
 pub mod usage;
@@ -15,5 +16,21 @@ pub mod usage;
 /// # 返回
 /// 返回函数执行结果
 pub fn core_version() -> &'static str {
-    env!("CARGO_PKG_VERSION")
+    release::release_version()
+}
+
+pub fn release_tag() -> String {
+    release::release_tag()
+}
+
+pub fn release_repository() -> &'static str {
+    release::release_repository()
+}
+
+pub fn release_built_at() -> &'static str {
+    release::release_built_at()
+}
+
+pub fn release_metadata() -> release::ReleaseMetadata {
+    release::release_metadata()
 }

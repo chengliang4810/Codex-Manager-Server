@@ -1,6 +1,4 @@
-import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { fetchWithRetry, runWithControl, RequestOptions } from "../utils/request";
-import { DEFAULT_UNSUPPORTED_WEB_REASON } from "../runtime/runtime-capabilities";
 import { useAppStore } from "../store/useAppStore";
 import {
   getAppErrorMessage,
@@ -13,12 +11,10 @@ import type { InvokeParams, WebCommandDescriptor } from "./transport-web-command
 import { postJsonRpc } from "./rpc-http";
 import {
   getCachedRuntimeCapabilities,
-  isTauriRuntime,
   loadRuntimeCapabilities,
 } from "./transport-runtime";
 export {
   getCachedRuntimeCapabilities,
-  isTauriRuntime,
   loadRuntimeCapabilities,
 } from "./transport-runtime";
 
@@ -83,11 +79,6 @@ async function postWebRpc<T>(
   options: RequestOptions = {}
 ): Promise<T> {
   const runtimeCapabilities = await loadRuntimeCapabilities();
-  if (runtimeCapabilities.mode === "unsupported-web") {
-    throw new Error(
-      runtimeCapabilities.unsupportedReason || DEFAULT_UNSUPPORTED_WEB_REASON
-    );
-  }
 
   return postJsonRpc<T>(
     fetchWithRetry,
@@ -175,15 +166,7 @@ export async function invoke<T>(
   params?: InvokeParams,
   options: RequestOptions = {}
 ): Promise<T> {
-  if (!isTauriRuntime()) {
-    return invokeWebRpc(method, params, options);
-  }
-
-  const response = await runWithControl<unknown>(
-    () => tauriInvoke(method, params || {}),
-    options
-  );
-  return unwrapRpcPayload<T>(response);
+  return invokeWebRpc(method, params, options);
 }
 
 /**
@@ -211,22 +194,6 @@ export async function requestlogListViaHttpRpc<T>(
   addr: string,
   options: RequestOptions = {}
 ): Promise<T> {
-  // Desktop environment should use Tauri invoke for reliability
-  if (isTauriRuntime()) {
-    return invoke<T>(
-      "service_requestlog_list",
-      {
-        query: params.query || "",
-        statusFilter: params.statusFilter || "all",
-        page: params.page ?? 1,
-        pageSize: params.pageSize ?? 20,
-        addr,
-      },
-      options
-    );
-  }
-
-  // Fallback for web mode if needed (though not primary for this app)
   return postJsonRpc<T>(
     fetchWithRetry,
     `http://${addr}/rpc`,

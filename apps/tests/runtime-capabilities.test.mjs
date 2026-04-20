@@ -59,12 +59,11 @@ test("normalizeRuntimeCapabilities 为 Web 网关补齐默认能力", () => {
 
   assert.equal(capabilities.mode, "web-gateway");
   assert.equal(capabilities.rpcBaseUrl, "/gateway/rpc");
-  assert.equal(capabilities.canManageService, false);
   assert.equal(capabilities.canUseBrowserFileImport, true);
   assert.equal(capabilities.canUseBrowserDownloadExport, true);
 });
 
-test("normalizeRuntimeCapabilities 在 unsupported-web 下保持保守默认值", () => {
+test("normalizeRuntimeCapabilities 会把旧的 unsupported-web 收敛到 web-gateway", () => {
   const capabilities = runtime.normalizeRuntimeCapabilities(
     {
       mode: "unsupported-web",
@@ -72,12 +71,10 @@ test("normalizeRuntimeCapabilities 在 unsupported-web 下保持保守默认值"
     "/proxy/rpc"
   );
 
-  assert.equal(capabilities.mode, "unsupported-web");
+  assert.equal(capabilities.mode, "web-gateway");
   assert.equal(capabilities.rpcBaseUrl, "/proxy/rpc");
-  assert.equal(capabilities.canManageService, false);
-  assert.equal(capabilities.canUseBrowserFileImport, false);
-  assert.equal(capabilities.canUseBrowserDownloadExport, false);
-  assert.match(capabilities.unsupportedReason, /CodexManager Web 运行壳/);
+  assert.equal(capabilities.canUseBrowserFileImport, true);
+  assert.equal(capabilities.canUseBrowserDownloadExport, true);
 });
 
 test("normalizeRuntimeCapabilities 在未知 mode 下回退到 web-gateway", () => {
@@ -85,36 +82,35 @@ test("normalizeRuntimeCapabilities 在未知 mode 下回退到 web-gateway", () 
     {
       mode: "legacy-web",
       rpcBaseUrl: "",
-      canSelfUpdate: true,
     },
     "/custom/rpc"
   );
 
   assert.equal(capabilities.mode, "web-gateway");
   assert.equal(capabilities.rpcBaseUrl, "/custom/rpc");
-  assert.equal(capabilities.canSelfUpdate, true);
 });
 
-test("resolveRuntimeCapabilityView 在桌面回退路径下暴露桌面能力", () => {
+test("desktop-tauri 不再属于受支持的运行时模式", () => {
+  assert.equal(runtime.isRuntimeMode("desktop-tauri"), false);
+  assert.equal(runtime.isRuntimeMode("unsupported-web"), false);
+});
+
+test("resolveRuntimeCapabilityView 默认走 web-gateway", () => {
   const view = runtime.resolveRuntimeCapabilityView(null, true);
 
-  assert.equal(view.mode, "desktop-tauri");
-  assert.equal(view.isDesktopRuntime, true);
+  assert.equal(view.mode, "web-gateway");
+  assert.equal(view.isDesktopRuntime, false);
   assert.equal(view.canAccessManagementRpc, true);
-  assert.equal(view.canManageService, true);
-  assert.equal(view.canSelfUpdate, true);
-  assert.equal(view.canOpenLocalDir, true);
 });
 
-test("resolveRuntimeCapabilityView 在未探测到运行壳前保持 Web 保守模式", () => {
+test("resolveRuntimeCapabilityView 在未探测到能力前也保持 Web 主路径", () => {
   const view = runtime.resolveRuntimeCapabilityView(null, false);
 
-  assert.equal(view.mode, "unsupported-web");
-  assert.equal(view.isUnsupportedWebRuntime, true);
-  assert.equal(view.canAccessManagementRpc, false);
-  assert.equal(view.canManageService, false);
-  assert.equal(view.canUseBrowserFileImport, false);
-  assert.equal(view.canUseBrowserDownloadExport, false);
+  assert.equal(view.mode, "web-gateway");
+  assert.equal(view.isUnsupportedWebRuntime, false);
+  assert.equal(view.canAccessManagementRpc, true);
+  assert.equal(view.canUseBrowserFileImport, true);
+  assert.equal(view.canUseBrowserDownloadExport, true);
 });
 
 test("resolveRuntimeCapabilityView 直接复用已探测到的 Web 网关能力", () => {
@@ -124,7 +120,6 @@ test("resolveRuntimeCapabilityView 直接复用已探测到的 Web 网关能力"
   assert.equal(view.mode, "web-gateway");
   assert.equal(view.isDesktopRuntime, false);
   assert.equal(view.canAccessManagementRpc, true);
-  assert.equal(view.canManageService, false);
   assert.equal(view.canUseBrowserFileImport, true);
   assert.equal(view.canUseBrowserDownloadExport, true);
 });

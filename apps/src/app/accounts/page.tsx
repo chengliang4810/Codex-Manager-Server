@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAccounts } from "@/hooks/useAccounts";
 import { useDesktopPageActive } from "@/hooks/useDesktopPageActive";
@@ -11,19 +11,22 @@ import {
   buildAccountsBySizeOrder,
   buildAccountOrderUpdates,
   type AccountEditorState,
+  ACCOUNTS_OVERVIEW_VIEW_MODE_KEY,
   type DeleteDialogState,
+  normalizeAccountsOverviewViewMode,
+  readInitialAccountsOverviewViewMode,
   normalizeAccountPlanKey,
   normalizeTagsDraft,
+  type AccountsOverviewViewMode,
   type StatusFilter,
 } from "@/app/accounts/accounts-page-helpers";
 import { AccountsPageView } from "@/app/accounts/accounts-page-view";
-import { isBannedAccount } from "@/lib/utils/usage";
+import { isBannedAccount, isLimitedAccount } from "@/lib/utils/usage";
 import type { Account } from "@/types";
 
 export default function AccountsPage() {
   const { t } = useI18n();
-  const { isDesktopRuntime, canUseBrowserDownloadExport } =
-    useRuntimeCapabilities();
+  const { canUseBrowserDownloadExport } = useRuntimeCapabilities();
   const {
     accounts,
     planTypes,
@@ -60,6 +63,8 @@ export default function AccountsPage() {
   const [search, setSearch] = useState("");
   const [planFilter, setPlanFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [overviewViewMode, setOverviewViewMode] =
+    useState<AccountsOverviewViewMode>(readInitialAccountsOverviewViewMode);
   const [pageSize, setPageSize] = useState("20");
   const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -79,19 +84,14 @@ export default function AccountsPage() {
   const [deleteDialogState, setDeleteDialogState] =
     useState<DeleteDialogState>(null);
 
-  const importFileActionLabel = isDesktopRuntime
-    ? t("按文件导入")
-    : t("选择文件导入");
-  const importDirectoryActionLabel = isDesktopRuntime
-    ? t("按文件夹导入")
-    : t("选择目录导入");
-  const exportActionLabel =
-    !isDesktopRuntime && canUseBrowserDownloadExport
-      ? t("导出到浏览器")
-      : t("导出账号");
+  const importFileActionLabel = t("选择文件导入");
+  const importDirectoryActionLabel = t("选择目录导入");
+  const exportActionLabel = canUseBrowserDownloadExport
+    ? t("导出到浏览器")
+    : t("导出账号");
   const exportActionShortcut = isExporting
     ? "..."
-    : !isDesktopRuntime && canUseBrowserDownloadExport
+    : canUseBrowserDownloadExport
       ? "DL"
       : "ZIP";
 
@@ -107,6 +107,7 @@ export default function AccountsPage() {
         statusFilter === "all" ||
         (statusFilter === "available" && account.isAvailable) ||
         (statusFilter === "low_quota" && account.isLowQuota) ||
+        (statusFilter === "limited" && isLimitedAccount(account)) ||
         (statusFilter === "banned" && isBannedAccount(account));
       return matchSearch && matchPlan && matchStatus;
     });
@@ -122,6 +123,10 @@ export default function AccountsPage() {
       {
         id: "low_quota" as const,
         label: `${t("低配额")} (${accounts.filter((account) => account.isLowQuota).length})`,
+      },
+      {
+        id: "limited" as const,
+        label: `${t("限流")} (${accounts.filter((account) => isLimitedAccount(account)).length})`,
       },
       {
         id: "banned" as const,
@@ -144,6 +149,14 @@ export default function AccountsPage() {
   const effectiveSelectedIds = useMemo(
     () => selectedIds.filter((id) => accountIdSet.has(id)),
     [accountIdSet, selectedIds],
+  );
+  const allFilteredSelected = useMemo(
+    () =>
+      filteredAccounts.length > 0 &&
+      filteredAccounts.every((account) =>
+        effectiveSelectedIds.includes(account.id),
+      ),
+    [effectiveSelectedIds, filteredAccounts],
   );
   const exportSelectionCount = effectiveSelectedIds.length;
   const exportTargetCount =
@@ -177,6 +190,39 @@ export default function AccountsPage() {
         : null,
     [accountEditorState, accounts],
   );
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    try {
+      window.localStorage.setItem(
+        ACCOUNTS_OVERVIEW_VIEW_MODE_KEY,
+        overviewViewMode,
+      );
+    } catch {
+      // ignore persistence failures
+    }
+  }, [overviewViewMode]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== ACCOUNTS_OVERVIEW_VIEW_MODE_KEY) {
+        return;
+      }
+      const nextMode = normalizeAccountsOverviewViewMode(event.newValue);
+      if (nextMode) {
+        setOverviewViewMode(nextMode);
+      }
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, []);
 
   const handleSearchChange = (value: string) => {
     setSearch(value);
@@ -216,6 +262,16 @@ export default function AccountsPage() {
         return current.filter((id) => !visibleIds.includes(id));
       }
       return Array.from(new Set([...current, ...visibleIds]));
+    });
+  };
+
+  const toggleSelectAllFiltered = () => {
+    const filteredIds = filteredAccounts.map((account) => account.id);
+    setSelectedIds((current) => {
+      if (allFilteredSelected) {
+        return current.filter((id) => !filteredIds.includes(id));
+      }
+      return Array.from(new Set([...current, ...filteredIds]));
     });
   };
 
@@ -466,6 +522,7 @@ export default function AccountsPage() {
       search={search}
       planFilter={planFilter}
       statusFilter={statusFilter}
+      overviewViewMode={overviewViewMode}
       pageSize={pageSize}
       safePage={safePage}
       totalPages={totalPages}
@@ -497,6 +554,7 @@ export default function AccountsPage() {
       isUpdatingProfileAccountId={isUpdatingProfileAccountId}
       isUpdatingStatusAccountId={isUpdatingStatusAccountId}
       statusFilterOptions={statusFilterOptions}
+      allFilteredSelected={allFilteredSelected}
       importFileActionLabel={importFileActionLabel}
       importDirectoryActionLabel={importDirectoryActionLabel}
       exportActionLabel={exportActionLabel}
@@ -504,6 +562,7 @@ export default function AccountsPage() {
       setAddAccountModalOpen={setAddAccountModalOpen}
       setExportDialogOpen={setExportDialogOpen}
       setExportModeDraft={setExportModeDraft}
+      setOverviewViewMode={setOverviewViewMode}
       setDeleteDialogState={setDeleteDialogState}
       setAccountEditorState={setAccountEditorState}
       setLabelDraft={setLabelDraft}
@@ -517,6 +576,7 @@ export default function AccountsPage() {
       handlePageSizeChange={handlePageSizeChange}
       toggleSelect={toggleSelect}
       toggleSelectAllVisible={toggleSelectAllVisible}
+      toggleSelectAllFiltered={toggleSelectAllFiltered}
       openUsage={openUsage}
       handleUsageModalOpenChange={handleUsageModalOpenChange}
       handleDeleteSelected={handleDeleteSelected}
@@ -524,6 +584,7 @@ export default function AccountsPage() {
       handleWarmupAccounts={handleWarmupAccounts}
       openExportDialog={openExportDialog}
       handleConfirmExport={handleConfirmExport}
+      exportAccounts={exportAccounts}
       handleDeleteSingle={handleDeleteSingle}
       openAccountEditor={openAccountEditor}
       handleMoveAccount={handleMoveAccount}

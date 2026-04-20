@@ -1,487 +1,246 @@
 name: release-all
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Release tag (e.g. v0.1.12)"
-        required: true
-        type: string
-      ref:
-        description: "Git ref/branch/sha to build"
+      release_version:
+        description: "Optional release version override without the v prefix (for example 0.2.5)"
         required: false
-        default: "main"
         type: string
-      prerelease:
-        description: "Release channel override (auto/true/false)"
-        required: false
-        default: auto
-        type: choice
-        options:
-          - auto
-          - true
-          - false
 
 permissions:
   contents: write
   packages: write
 
 env:
-  TAURI_CLI_VERSION: 2.10.1
   CARGO_TARGET_DIR: ${{ github.workspace }}/target-shared
 
 concurrency:
-  group: ${{ format('{0}-tag-{1}', github.workflow, startsWith(github.event.inputs.tag, 'v') && github.event.inputs.tag || format('v{0}', github.event.inputs.tag)) }}
+  group: ${{ github.workflow }}-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
-  build_frontend_dist:
+  prepare_release:
+    runs-on: ubuntu-22.04
+    outputs:
+      should_release: ${{ steps.prepare.outputs.should_release }}
+      release_version: ${{ steps.prepare.outputs.release_version }}
+      release_tag: ${{ steps.prepare.outputs.release_tag }}
+      release_built_at: ${{ steps.prepare.outputs.release_built_at }}
+      release_repository: ${{ steps.prepare.outputs.release_repository }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Prepare release metadata
+        id: prepare
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          GH_SHA: ${{ github.sha }}
+          INPUT_RELEASE_VERSION: ${{ github.event.inputs.release_version || '' }}
+        run: |
+          set -euo pipefail
+
+          python3 <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          from datetime import datetime, timezone
+
+          repo = os.environ["GH_REPO"]
+          sha = os.environ["GH_SHA"]
+          manual_version = os.environ.get("INPUT_RELEASE_VERSION", "").strip().lstrip("vV")
+          output = os.environ["GITHUB_OUTPUT"]
+
+          releases_raw = subprocess.check_output(
+              ["gh", "api", f"repos/{repo}/releases?per_page=100"],
+              text=True,
+          )
+          releases = json.loads(releases_raw)
+
+          for release in releases:
+              target = str(release.get("target_commitish") or "").strip()
+              if target == sha:
+                  with open(output, "a", encoding="utf-8") as fh:
+                      fh.write("should_release=false\n")
+                  raise SystemExit(0)
+
+          version_pattern = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
+          versions = []
+          for release in releases:
+              if release.get("draft") or release.get("prerelease"):
+                  continue
+              tag = str(release.get("tag_name") or "").strip()
+              match = version_pattern.fullmatch(tag)
+              if not match:
+                  continue
+              versions.append(tuple(int(part) for part in match.groups()))
+
+          if manual_version:
+              match = version_pattern.fullmatch(manual_version)
+              if not match:
+                  raise SystemExit(f"Invalid release version override: {manual_version}")
+              next_version = tuple(int(part) for part in match.groups())
+          elif versions:
+              major, minor, patch = max(versions)
+              next_version = (major, minor, patch + 1)
+          else:
+              next_version = (0, 0, 1)
+
+          release_version = ".".join(str(part) for part in next_version)
+          release_tag = f"v{release_version}"
+          built_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+          with open(output, "a", encoding="utf-8") as fh:
+              fh.write("should_release=true\n")
+              fh.write(f"release_version={release_version}\n")
+              fh.write(f"release_tag={release_tag}\n")
+              fh.write(f"release_built_at={built_at}\n")
+              fh.write(f"release_repository={repo}\n")
+          PY
+
+      - name: Skip duplicate release
+        if: ${{ steps.prepare.outputs.should_release != 'true' }}
+        run: echo "Release already exists for this commit; skipping."
+
+  build_and_publish:
+    needs: prepare_release
+    if: ${{ needs.prepare_release.outputs.should_release == 'true' }}
     runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.inputs.ref || 'main' }}
+          fetch-depth: 0
 
       - name: Setup release environment
         uses: ./.github/actions/setup-release-env
+
+      - name: Install zip
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends zip
 
       - name: Install frontend dependencies
         working-directory: apps
         run: pnpm install --frozen-lockfile
 
-      - name: Build frontend dist
+      - name: Build frontend
         working-directory: apps
-        run: pnpm run build:desktop
+        run: pnpm run build
 
-      - name: Pack frontend dist artifact
+      - name: Build Linux binaries with injected release metadata
         shell: bash
+        env:
+          CODEXMANAGER_RELEASE_VERSION: ${{ needs.prepare_release.outputs.release_version }}
+          CODEXMANAGER_RELEASE_TAG: ${{ needs.prepare_release.outputs.release_tag }}
+          CODEXMANAGER_RELEASE_REPOSITORY: ${{ needs.prepare_release.outputs.release_repository }}
+          CODEXMANAGER_RELEASE_BUILT_AT: ${{ needs.prepare_release.outputs.release_built_at }}
         run: |
           set -euo pipefail
-          test -f apps/out/index.html || { echo "apps/out/index.html not found"; exit 1; }
-          rm -f frontend-dist.tar.gz
-          tar -czf frontend-dist.tar.gz -C apps out
-
-      - name: Upload frontend dist artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: codexmanager-frontend-dist
-          path: frontend-dist.tar.gz
-          if-no-files-found: error
-          compression-level: 0
-
-  build_windows:
-    needs: build_frontend_dist
-    runs-on: windows-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.inputs.ref || 'main' }}
-
-      - name: Setup release environment
-        uses: ./.github/actions/setup-release-env
-        with:
-          enable-pnpm-cache: "false"
-          enable-rust-cache: "false"
-
-      - name: Prepare frontend dist
-        uses: ./.github/actions/prepare-frontend-dist
-
-      - name: Build Tauri bundle (with retry)
-        uses: ./.github/actions/build-tauri-with-retry
-        with:
-          working-directory: apps
-          tauri-cli-version: ${{ env.TAURI_CLI_VERSION }}
-          bundles: nsis
-          shell-type: pwsh
-
-      - name: Stage desktop release assets
-        shell: pwsh
-        run: |
-          $releaseDir = Join-Path "${{ env.CARGO_TARGET_DIR }}" "release"
-          $bundleDir = Join-Path $releaseDir "bundle"
-          $portableDir = Join-Path $releaseDir "portable"
-          $desktopAssetsDir = Join-Path $releaseDir "release-assets"
-          $version = (Get-Content "apps/src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json).version
-          $arch = if ("${{ runner.arch }}" -eq "ARM64") { "arm64" } else { "x64" }
-          New-Item -ItemType Directory -Force $portableDir | Out-Null
-          Remove-Item -Recurse -Force $desktopAssetsDir -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force $desktopAssetsDir | Out-Null
-
-          $source = Join-Path $releaseDir "CodexManager.exe"
-          if (-not (Test-Path $source -PathType Leaf)) {
-            throw "portable source binary not found: $source"
-          }
-
-          $portableBinary = Join-Path $portableDir "CodexManager-portable.exe"
-          Copy-Item -Force $source $portableBinary
-          Write-Host "portable binary: $portableBinary"
-
-          $installerSource = Get-ChildItem -Path $bundleDir -Recurse -File |
-            Where-Object { $_.Name -like "*-setup.exe" -and $_.Name -notlike "*portable*" } |
-            Sort-Object FullName |
-            Select-Object -First 1
-          if (-not $installerSource) {
-            throw "windows setup installer not found under: $bundleDir"
-          }
-
-          $installerTarget = Join-Path $desktopAssetsDir "CodexManager_${version}_${arch}-setup.exe"
-          Copy-Item -Force $installerSource.FullName $installerTarget
-          Copy-Item -Force $portableBinary (Join-Path $desktopAssetsDir "CodexManager-portable.exe")
-          Get-ChildItem -Path $desktopAssetsDir -File | ForEach-Object {
-            Write-Host "desktop asset: $($_.FullName)"
-          }
-
-      - name: Build service binaries
-        shell: pwsh
-        run: |
           cargo build -p codexmanager-service --release
           cargo build -p codexmanager-web --release --features embedded-ui
           cargo build -p codexmanager-start --release
 
-      - name: Stage service package
-        uses: ./.github/actions/stage-service-package
-        with:
-          platform: windows
-          arch: ${{ runner.arch == 'X64' && 'x86_64' || runner.arch == 'ARM64' && 'arm64' || runner.arch }}
-          stage-root: stage
-          release-dir: ${{ env.CARGO_TARGET_DIR }}/release
-          binary-extension: .exe
-          shell-type: pwsh
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v6
-        with:
-          name: codexmanager-windows
-          path: ${{ env.CARGO_TARGET_DIR }}/release/release-assets/*.exe
-          if-no-files-found: error
-          compression-level: 0
-
-      - name: Upload service artifacts
-        uses: actions/upload-artifact@v6
-        with:
-          name: codexmanager-service-windows
-          path: stage/*.zip
-          if-no-files-found: error
-          compression-level: 0
-
-  build_macos_beta:
-    needs: build_frontend_dist
-    runs-on: macos-14
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: arm64
-            rust_target: aarch64-apple-darwin
-          - arch: x64
-            rust_target: x86_64-apple-darwin
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.inputs.ref || 'main' }}
-
-      - name: Setup release environment
-        uses: ./.github/actions/setup-release-env
-        with:
-          rust-target: ${{ matrix.rust_target }}
-          enable-pnpm-cache: "false"
-          enable-rust-cache: "false"
-
-      - name: Prepare frontend dist
-        uses: ./.github/actions/prepare-frontend-dist
-
-      - name: Build macOS app bundle
-        uses: ./.github/actions/build-tauri-with-retry
-        with:
-          working-directory: apps
-          tauri-cli-version: ${{ env.TAURI_CLI_VERSION }}
-          bundles: app
-          target: ${{ matrix.rust_target }}
-          shell-type: bash
-
-      - name: Rebuild macOS dmg with first-launch helper
+      - name: Stage Linux release assets
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.prepare_release.outputs.release_version }}
+          RELEASE_TAG: ${{ needs.prepare_release.outputs.release_tag }}
+          RELEASE_REPOSITORY: ${{ needs.prepare_release.outputs.release_repository }}
+          RELEASE_BUILT_AT: ${{ needs.prepare_release.outputs.release_built_at }}
         run: |
           set -euo pipefail
 
-          release_dir="${{ env.CARGO_TARGET_DIR }}/${{ matrix.rust_target }}/release"
-          bundle_root="${release_dir}/bundle"
-          test -d "$bundle_root" || { echo "macOS bundle root not found: $bundle_root"; exit 1; }
+          release_dir="${CARGO_TARGET_DIR}/release"
+          assets_dir="${release_dir}/release-assets"
+          mkdir -p "$assets_dir"
 
-          bundle_dir="$(find "$bundle_root" -type d -path '*/CodexManager.app' | head -n 1)"
-          test -n "$bundle_dir" || { echo "macOS app bundle not found under: $bundle_root"; exit 1; }
+          stage_binary_zip() {
+            local binary_name="$1"
+            local archive_name="$2"
+            local stage_dir="${assets_dir}/${archive_name%.zip}"
 
-          dmg_dir="${bundle_root}/dmg"
-          mkdir -p "$dmg_dir"
-          find "$dmg_dir" -type f -name '*.dmg' -delete
+            rm -rf "$stage_dir"
+            mkdir -p "$stage_dir"
+            cp -f "${release_dir}/${binary_name}" "${stage_dir}/${binary_name}"
+            chmod +x "${stage_dir}/${binary_name}"
+            (
+              cd "$assets_dir"
+              zip -q -r "$archive_name" "${archive_name%.zip}"
+            )
+          }
 
-          if [ "${{ matrix.arch }}" = "arm64" ]; then
-            dmg_arch="aarch64"
-          else
-            dmg_arch="x64"
-          fi
+          stage_binary_zip "codexmanager-service" "CodexManager-service-linux-x86_64.zip"
+          stage_binary_zip "codexmanager-web" "CodexManager-web-linux-x86_64.zip"
+          stage_binary_zip "codexmanager-start" "CodexManager-start-linux-x86_64.zip"
 
-          version="$(python3 -c 'import json, pathlib; print(json.loads(pathlib.Path("apps/src-tauri/tauri.conf.json").read_text(encoding="utf-8"))["version"])')"
+          cp docker/docker-compose.release.yml "${assets_dir}/docker-compose.release.yml"
 
-          stage_dir="$(mktemp -d)"
-          temp_dir="$(mktemp -d)"
-          trap 'rm -rf "$stage_dir" "$temp_dir"' EXIT
+          cat > "${assets_dir}/release-manifest.json" <<EOF
+          {
+            "version": "${RELEASE_VERSION}",
+            "releaseTag": "${RELEASE_TAG}",
+            "repository": "${RELEASE_REPOSITORY}",
+            "builtAt": "${RELEASE_BUILT_AT}",
+            "images": {
+              "service": "ghcr.io/${{ github.repository_owner }}/codexmanager-service:${RELEASE_TAG}",
+              "serviceLatest": "ghcr.io/${{ github.repository_owner }}/codexmanager-service:latest",
+              "web": "ghcr.io/${{ github.repository_owner }}/codexmanager-web:${RELEASE_TAG}",
+              "webLatest": "ghcr.io/${{ github.repository_owner }}/codexmanager-web:latest"
+            }
+          }
+          EOF
 
-          ditto "$bundle_dir" "$stage_dir/CodexManager.app"
-          ln -s /Applications "$stage_dir/Applications"
-          install -m 0755 "assets/macos/Open CodexManager.command" "$stage_dir/Open CodexManager.command"
-          install -m 0644 "assets/macos/README-macOS-first-launch.txt" "$stage_dir/README-macOS-first-launch.txt"
-
-          codesign --force --deep --sign - "$stage_dir/CodexManager.app"
-          codesign --verify --deep --strict "$stage_dir/CodexManager.app"
-
-          dmg_path="${dmg_dir}/CodexManager_${version}_${dmg_arch}.dmg"
-          temp_dmg_path="${temp_dir}/CodexManager_${version}_${dmg_arch}.dmg"
-          created=false
-          for attempt in 1 2 3; do
-            rm -f "$temp_dmg_path"
-            hdiutil detach "/Volumes/CodexManager" -force >/dev/null 2>&1 || true
-            sync || true
-            sleep "$attempt"
-            if hdiutil create -volname "CodexManager" -srcfolder "$stage_dir" -ov -format UDZO "$temp_dmg_path"; then
-              created=true
-              break
-            fi
-            echo "hdiutil create failed on attempt ${attempt}, retrying..."
-          done
-
-          $created || { echo "macOS dmg create failed after retries"; exit 1; }
-          mv -f "$temp_dmg_path" "$dmg_path"
-          test -f "$dmg_path" || { echo "macOS dmg not created: $dmg_path"; exit 1; }
-
-      - name: Stage legacy macOS portable package
-        if: ${{ matrix.arch == 'x64' }}
+      - name: Build release Docker images
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.prepare_release.outputs.release_version }}
+          RELEASE_TAG: ${{ needs.prepare_release.outputs.release_tag }}
+          RELEASE_REPOSITORY: ${{ needs.prepare_release.outputs.release_repository }}
+          RELEASE_BUILT_AT: ${{ needs.prepare_release.outputs.release_built_at }}
         run: |
           set -euo pipefail
 
-          release_dir="${{ env.CARGO_TARGET_DIR }}/${{ matrix.rust_target }}/release"
-          bundle_root="${release_dir}/bundle"
-          test -d "$bundle_root" || { echo "macOS bundle root not found: $bundle_root"; exit 1; }
-
-          bundle_dir="$(find "$bundle_root" -type d -path '*/CodexManager.app' | head -n 1)"
-          test -n "$bundle_dir" || { echo "macOS app bundle not found under: $bundle_root"; exit 1; }
-
-          portable_dir="${release_dir}/portable"
-          mkdir -p "$portable_dir"
-
-          zip_path="${portable_dir}/CodexManager-macos-portable.zip"
-          rm -f "$zip_path"
-          ditto -c -k --sequesterRsrc --keepParent "$bundle_dir" "$zip_path"
-          echo "legacy portable zip: $zip_path"
-          echo "source app bundle: $bundle_dir"
-
-      - name: Build service binaries
-        run: |
-          cargo build -p codexmanager-service --release --target ${{ matrix.rust_target }}
-          cargo build -p codexmanager-web --release --features embedded-ui --target ${{ matrix.rust_target }}
-          cargo build -p codexmanager-start --release --target ${{ matrix.rust_target }}
-
-      - name: Stage service package
-        uses: ./.github/actions/stage-service-package
-        with:
-          platform: macos
-          arch: ${{ matrix.arch }}
-          stage-root: stage
-          release-dir: ${{ env.CARGO_TARGET_DIR }}/${{ matrix.rust_target }}/release
-          shell-type: bash
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v6
-        with:
-          name: codexmanager-macos-${{ matrix.arch }}
-          path: |
-            ${{ env.CARGO_TARGET_DIR }}/${{ matrix.rust_target }}/release/bundle/dmg/*.dmg
-            ${{ env.CARGO_TARGET_DIR }}/${{ matrix.rust_target }}/release/portable/*.zip
-          if-no-files-found: error
-          compression-level: 0
-
-      - name: Upload service artifacts
-        uses: actions/upload-artifact@v6
-        with:
-          name: codexmanager-service-macos-${{ matrix.arch }}
-          path: stage/*.zip
-          if-no-files-found: error
-          compression-level: 0
-
-  build_linux:
-    needs: build_frontend_dist
-    runs-on: ubuntu-22.04
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.inputs.ref || 'main' }}
-
-      - name: Setup release environment
-        uses: ./.github/actions/setup-release-env
-        with:
-          enable-pnpm-cache: "false"
-          enable-rust-cache: "false"
-
-      - name: Install Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf libsoup-3.0-dev zip
-
-      - name: Prepare frontend dist
-        uses: ./.github/actions/prepare-frontend-dist
-
-      - name: Build Tauri bundle (with retry)
-        uses: ./.github/actions/build-tauri-with-retry
-        with:
-          working-directory: apps
-          tauri-cli-version: ${{ env.TAURI_CLI_VERSION }}
-          bundles: appimage,deb
-          shell-type: bash
-
-      - name: Stage portable package
-        shell: bash
-        run: |
-          release_dir="${{ env.CARGO_TARGET_DIR }}/release"
-          portable_dir="$release_dir/portable"
-          mkdir -p "$portable_dir"
-
-          source_bin="$release_dir/CodexManager"
-          if [[ ! -f "$source_bin" ]]; then
-            echo "portable source binary not found: $source_bin"
-            exit 1
-          fi
-
-          portable_bin="$portable_dir/CodexManager-portable"
-          cp -f "$source_bin" "$portable_bin"
-          chmod +x "$portable_bin"
-
-          zip_path="$portable_dir/CodexManager-linux-portable.zip"
-          rm -f "$zip_path"
-          (
-            cd "$portable_dir"
-            zip -q "CodexManager-linux-portable.zip" "CodexManager-portable"
-          )
-          echo "portable package: $zip_path"
-
-      - name: Build service binaries
-        run: |
-          cargo build -p codexmanager-service --release
-          cargo build -p codexmanager-web --release --features embedded-ui
-          cargo build -p codexmanager-start --release
-
-      - name: Stage docker release package
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          release_dir="${{ env.CARGO_TARGET_DIR }}/release"
+          release_dir="${CARGO_TARGET_DIR}/release"
           docker_stage="${release_dir}/docker-release"
-          release_assets_dir="${release_dir}/release-assets"
 
           rm -rf "$docker_stage"
-          mkdir -p "$docker_stage" "$release_assets_dir"
+          mkdir -p "$docker_stage"
 
           cp docker/Dockerfile.service.release "$docker_stage/Dockerfile.service"
           cp docker/Dockerfile.web.release "$docker_stage/Dockerfile.web"
-          cp docker/docker-compose.release.yml "$docker_stage/docker-compose.yml"
-          cp "$release_dir/codexmanager-service" "$docker_stage/codexmanager-service"
-          cp "$release_dir/codexmanager-web" "$docker_stage/codexmanager-web"
-          cp "$release_dir/codexmanager-start" "$docker_stage/codexmanager-start"
+          cp "${release_dir}/codexmanager-service" "$docker_stage/codexmanager-service"
+          cp "${release_dir}/codexmanager-web" "$docker_stage/codexmanager-web"
           chmod +x "$docker_stage"/codexmanager-*
 
-          docker build -f "$docker_stage/Dockerfile.service" -t codexmanager-service:release "$docker_stage"
-          docker build -f "$docker_stage/Dockerfile.web" -t codexmanager-web:release "$docker_stage"
+          docker build \
+            -f "$docker_stage/Dockerfile.service" \
+            --build-arg RELEASE_VERSION="$RELEASE_VERSION" \
+            --build-arg RELEASE_TAG="$RELEASE_TAG" \
+            --build-arg RELEASE_REPOSITORY="$RELEASE_REPOSITORY" \
+            --build-arg RELEASE_BUILT_AT="$RELEASE_BUILT_AT" \
+            -t codexmanager-service:release \
+            "$docker_stage"
 
-          docker save codexmanager-service:release codexmanager-web:release | gzip -c > "$release_assets_dir/codexmanager-docker-images.tar.gz"
-          cp "$docker_stage/docker-compose.yml" "$release_assets_dir/docker-compose.release.yml"
-
-      - name: Upload docker artifacts
-        uses: actions/upload-artifact@v6
-        with:
-          name: codexmanager-docker
-          path: |
-            ${{ env.CARGO_TARGET_DIR }}/release/release-assets/codexmanager-docker-images.tar.gz
-            ${{ env.CARGO_TARGET_DIR }}/release/release-assets/docker-compose.release.yml
-          if-no-files-found: error
-          compression-level: 0
-
-      - name: Stage service package
-        uses: ./.github/actions/stage-service-package
-        with:
-          platform: linux
-          arch: x86_64
-          stage-root: stage
-          release-dir: ${{ env.CARGO_TARGET_DIR }}/release
-          shell-type: bash
-
-      - name: Stage web package
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          release_dir="${{ env.CARGO_TARGET_DIR }}/release"
-          release_assets_dir="${release_dir}/release-assets"
-          service_zip="stage/CodexManager-service-linux-x86_64.zip"
-          web_zip="${release_assets_dir}/CodexManager-web-linux-x86_64.zip"
-
-          mkdir -p "$release_assets_dir"
-          test -f "$service_zip" || { echo "service package not found: $service_zip"; exit 1; }
-          cp -f "$service_zip" "$web_zip"
-          echo "web package: $web_zip"
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v6
-        with:
-          name: codexmanager-linux
-          path: |
-            ${{ env.CARGO_TARGET_DIR }}/release/bundle/**/*.AppImage
-            ${{ env.CARGO_TARGET_DIR }}/release/bundle/**/*.deb
-            ${{ env.CARGO_TARGET_DIR }}/release/portable/*.zip
-          if-no-files-found: error
-          compression-level: 0
-
-      - name: Upload service artifacts
-        uses: actions/upload-artifact@v6
-        with:
-          name: codexmanager-service-linux
-          path: stage/*.zip
-          if-no-files-found: error
-          compression-level: 0
-
-      - name: Upload web artifacts
-        uses: actions/upload-artifact@v6
-        with:
-          name: codexmanager-web-linux
-          path: ${{ env.CARGO_TARGET_DIR }}/release/release-assets/CodexManager-web-linux-x86_64.zip
-          if-no-files-found: error
-          compression-level: 0
-
-  release:
-    needs: [build_windows, build_macos_beta, build_linux]
-    if: ${{ needs.build_windows.result == 'success' && needs.build_macos_beta.result == 'success' && needs.build_linux.result == 'success' }}
-    runs-on: ubuntu-22.04
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.inputs.ref || 'main' }}
-
-      - name: Download artifacts
-        uses: actions/download-artifact@v8
-        with:
-          pattern: codexmanager-*
-          merge-multiple: true
-          path: release-assets
+          docker build \
+            -f "$docker_stage/Dockerfile.web" \
+            --build-arg RELEASE_VERSION="$RELEASE_VERSION" \
+            --build-arg RELEASE_TAG="$RELEASE_TAG" \
+            --build-arg RELEASE_REPOSITORY="$RELEASE_REPOSITORY" \
+            --build-arg RELEASE_BUILT_AT="$RELEASE_BUILT_AT" \
+            -t codexmanager-web:release \
+            "$docker_stage"
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
@@ -490,33 +249,31 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Load docker images
+      - name: Push Docker images
         shell: bash
-        run: |
-          set -euo pipefail
-          gunzip -c release-assets/codexmanager-docker-images.tar.gz | docker load
-
-      - name: Push docker images to GHCR
-        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.prepare_release.outputs.release_tag }}
         run: |
           set -euo pipefail
           owner="${{ github.repository_owner }}"
-          tag="${{ github.event.inputs.tag }}"
 
-          docker tag codexmanager-service:release "ghcr.io/${owner}/codexmanager-service:${tag}"
-          docker tag codexmanager-web:release "ghcr.io/${owner}/codexmanager-web:${tag}"
+          docker tag codexmanager-service:release "ghcr.io/${owner}/codexmanager-service:${RELEASE_TAG}"
+          docker tag codexmanager-service:release "ghcr.io/${owner}/codexmanager-service:latest"
+          docker tag codexmanager-web:release "ghcr.io/${owner}/codexmanager-web:${RELEASE_TAG}"
+          docker tag codexmanager-web:release "ghcr.io/${owner}/codexmanager-web:latest"
 
-          docker push "ghcr.io/${owner}/codexmanager-service:${tag}"
-          docker push "ghcr.io/${owner}/codexmanager-web:${tag}"
+          docker push "ghcr.io/${owner}/codexmanager-service:${RELEASE_TAG}"
+          docker push "ghcr.io/${owner}/codexmanager-service:latest"
+          docker push "ghcr.io/${owner}/codexmanager-web:${RELEASE_TAG}"
+          docker push "ghcr.io/${owner}/codexmanager-web:latest"
 
       - name: List release assets
-        run: find release-assets -type f | sort
+        run: find "${CARGO_TARGET_DIR}/release/release-assets" -type f | sort
 
       - name: Publish GitHub Release
         uses: ./.github/actions/publish-github-release
         with:
-          tag: ${{ github.event.inputs.tag }}
-          ref: ${{ github.event.inputs.ref || 'main' }}
-          prerelease-input: ${{ github.event.inputs.prerelease || 'auto' }}
-          assets-dir: release-assets
-
+          tag: ${{ needs.prepare_release.outputs.release_tag }}
+          ref: ${{ github.sha }}
+          prerelease-input: false
+          assets-dir: ${{ env.CARGO_TARGET_DIR }}/release/release-assets

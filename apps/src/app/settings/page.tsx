@@ -5,10 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
 import { appClient } from "@/lib/api/app-client";
-import type {
-  UpdateCheckResult,
-  UpdatePrepareResult,
-} from "@/lib/api/app-updates";
+import type { UpdateCheckResult } from "@/lib/api/app-updates";
 import { getAppErrorMessage } from "@/lib/api/transport";
 import { useAppStore } from "@/lib/store/useAppStore";
 import {
@@ -46,7 +43,6 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -60,19 +56,21 @@ import {
   Cpu,
   Download,
   ExternalLink,
-  FolderOpen,
   Globe,
   Info,
   Palette,
+  Plus,
   RefreshCw,
   RotateCcw,
   Save,
   Search,
   Settings as SettingsIcon,
+  Trash2,
   Variable,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/modals/confirm-dialog";
+import { WebPasswordModal } from "@/components/modals/web-password-modal";
 import { useI18n } from "@/lib/i18n/provider";
 import {
   CUSTOM_WORKER_MODE_VALUE,
@@ -100,8 +98,12 @@ import {
   normalizeEnvRiskLevel,
   normalizeWorkerRecommendation,
   parseIntegerInput,
+  parseModelForwardRuleRows,
   readInitialSettingsTab,
+  SERVER_ENV_ALLOWED_KEYS,
+  serializeModelForwardRuleRows,
   stringifyNumber,
+  type ModelForwardRuleRow,
   type SettingsTab,
   type WorkerPreset,
 } from "@/app/settings/settings-page-helpers";
@@ -113,11 +115,7 @@ export default function SettingsPage() {
   const { theme, setTheme } = useTheme();
   const queryClient = useQueryClient();
   const {
-    isDesktopRuntime,
     canAccessManagementRpc,
-    canSelfUpdate,
-    canOpenLocalDir,
-    canCloseToTray,
   } = useRuntimeCapabilities();
   const isPageActive = useDesktopPageActive("/settings/");
   const isSnapshotQueryEnabled = useDeferredDesktopActivation(
@@ -141,14 +139,14 @@ export default function SettingsPage() {
   >(null);
   const [gatewayUserAgentVersionDraft, setGatewayUserAgentVersionDraft] =
     useState<string | null>(null);
-  const [modelForwardRulesDraft, setModelForwardRulesDraft] =
-    useState<string | null>(null);
+  const [modelForwardRulesDraft, setModelForwardRulesDraft] = useState<{
+    rows: ModelForwardRuleRow[];
+    passthroughLines: string[];
+  } | null>(null);
   const [lastUpdateCheck, setLastUpdateCheck] =
     useState<UpdateCheckResult | null>(null);
   const [updateDialogCheck, setUpdateDialogCheck] =
     useState<UpdateCheckResult | null>(null);
-  const [preparedUpdate, setPreparedUpdate] =
-    useState<UpdatePrepareResult | null>(null);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [manualUpdateCheckPending, setManualUpdateCheckPending] =
     useState(false);
@@ -162,6 +160,7 @@ export default function SettingsPage() {
   >({});
   const [workerAdvancedDialogOpen, setWorkerAdvancedDialogOpen] =
     useState(false);
+  const [webPasswordModalOpen, setWebPasswordModalOpen] = useState(false);
   const { data: workerRecommendation } = useQuery({
     queryKey: ["gateway-concurrency-recommendation"],
     queryFn: async () =>
@@ -221,8 +220,17 @@ export default function SettingsPage() {
     enabled: isSnapshotQueryEnabled && isPageActive,
   });
   const snapshot = fetchedSnapshot ?? storedSettings;
-  const modelForwardRulesInput =
-    modelForwardRulesDraft ?? (snapshot?.modelForwardRules || "");
+  const modelForwardRulesEditor =
+    modelForwardRulesDraft ??
+    parseModelForwardRuleRows(snapshot?.modelForwardRules || "");
+  const modelForwardRuleRows =
+    modelForwardRulesEditor.rows.length > 0
+      ? modelForwardRulesEditor.rows
+      : [{ source: "", target: "" }];
+  const modelForwardRulesSerialized = serializeModelForwardRuleRows(
+    modelForwardRulesEditor.rows,
+    modelForwardRulesEditor.passthroughLines,
+  );
   usePageTransitionReady(
     "/settings/",
     !canAccessManagementRpc || Boolean(snapshot) || isSnapshotError,
@@ -297,19 +305,13 @@ export default function SettingsPage() {
       setLastUpdateCheck(summary);
       setUpdateDialogCheck(summary);
       if (summary.hasUpdate) {
-        setPreparedUpdate((current) =>
-          current && current.latestVersion === summary.latestVersion
-            ? current
-            : null,
-        );
         if (!request?.silent) {
           toast.success(
-            `${t("发现新版本")} ${summary.latestVersion || summary.releaseTag || t("可用")}${t("，可立即下载更新")}`,
+            `${t("发现新版本")} ${summary.latestVersion || summary.releaseTag || t("可用")}${t("，请打开发布页查看升级方式")}`,
           );
         }
         return;
       }
-      setPreparedUpdate(null);
       setUpdateDialogOpen(false);
       if (!request?.silent) {
         toast.success(
@@ -329,72 +331,6 @@ export default function SettingsPage() {
       }
     },
   });
-
-  const prepareUpdate = useMutation({
-    mutationFn: () => appClient.prepareUpdate(),
-    onSuccess: (summary) => {
-      setPreparedUpdate(summary);
-      setUpdateDialogOpen(true);
-      toast.success(
-        summary.isPortable
-          ? `${t("更新已下载完成，确认后即可替换到")} ${summary.latestVersion || t("新版本")}`
-          : `${t("更新包已下载完成，确认后开始替换到")} ${summary.latestVersion || t("新版本")}`,
-      );
-    },
-    onError: (error: unknown) => {
-      toast.error(`${t("下载更新失败")}: ${getAppErrorMessage(error)}`);
-    },
-  });
-
-  const applyPreparedUpdate = useMutation({
-    mutationFn: (payload: { isPortable: boolean }) =>
-      payload.isPortable
-        ? appClient.applyUpdatePortable()
-        : appClient.launchInstaller(),
-    onSuccess: (result, payload) => {
-      setPreparedUpdate(null);
-      setLastUpdateCheck(null);
-      setUpdateDialogCheck(null);
-      setUpdateDialogOpen(false);
-      const message = result.message.trim();
-      toast.success(
-        message ||
-          (payload.isPortable ? t("即将重启并替换更新") : t("已开始替换更新流程")),
-      );
-    },
-    onError: (error: unknown, payload) => {
-      toast.error(
-        `${payload.isPortable ? t("替换更新") : t("启动安装程序")}${t("失败")}: ${getAppErrorMessage(error)}`,
-      );
-    },
-  });
-
-  useEffect(() => {
-    if (!isDesktopRuntime) {
-      return;
-    }
-
-    let cancelled = false;
-    void appClient
-      .getStatus()
-      .then((summary) => {
-        if (cancelled) {
-          return;
-        }
-        if (summary.lastCheck) {
-          setLastUpdateCheck(summary.lastCheck);
-          setUpdateDialogCheck(summary.lastCheck);
-        }
-        if (summary.pending) {
-          setPreparedUpdate(summary.pending);
-        }
-      })
-      .catch(() => undefined);
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isDesktopRuntime]);
 
   useEffect(() => {
     if (!snapshot?.theme) return;
@@ -480,37 +416,16 @@ export default function SettingsPage() {
     checkUpdate.mutate({ silent: false });
   };
 
-  const hasPreparedUpdate = Boolean(preparedUpdate);
-  const canDownloadUpdate = Boolean(
-    !preparedUpdate && lastUpdateCheck?.hasUpdate && lastUpdateCheck.canPrepare,
+  const updateActionLabel = t("检查更新");
+  const updateActionDescription = t(
+    "检查 GitHub Releases 是否有新版本，并跳转到发布页查看 Docker / Linux 部署方式。",
   );
-  const shouldShowUpdateLogsEntry = Boolean(
-    canOpenLocalDir && (preparedUpdate || lastUpdateCheck),
-  );
-  const updateActionLabel = hasPreparedUpdate
-    ? t("替换更新")
-    : canDownloadUpdate
-      ? t("下载更新")
-      : t("检查更新");
-  const updateActionDescription = !canSelfUpdate
-    ? t("Web / Docker 版不提供桌面应用更新检查")
-    : hasPreparedUpdate
-      ? t("更新包已下载完成，点击后确认替换当前版本")
-      : canDownloadUpdate
-        ? t("已发现新版本，点击后开始下载更新包")
-        : t("立即检查 GitHub Releases 是否有新版本可用");
   const updateActionBusy = Boolean(
-    manualUpdateCheckPending ||
-    prepareUpdate.isPending ||
-    applyPreparedUpdate.isPending,
+    manualUpdateCheckPending,
   );
   const updateActionBusyLabel = manualUpdateCheckPending
     ? t("正在检查...")
-    : prepareUpdate.isPending
-      ? t("正在下载...")
-      : applyPreparedUpdate.isPending
-        ? t("正在替换...")
-        : updateActionLabel;
+    : updateActionLabel;
 
   /**
    * 函数 `handleUpdateAction`
@@ -526,43 +441,12 @@ export default function SettingsPage() {
    * 返回函数执行结果
    */
   const handleUpdateAction = () => {
-    if (preparedUpdate) {
-      setUpdateDialogCheck((current) => current ?? lastUpdateCheck);
-      setUpdateDialogOpen(true);
-      return;
-    }
-
-    if (lastUpdateCheck?.hasUpdate && lastUpdateCheck.canPrepare) {
-      setUpdateDialogCheck(lastUpdateCheck);
-      prepareUpdate.mutate();
-      return;
-    }
-
     handleManualCheckUpdate();
   };
 
-  /**
-   * 函数 `handleOpenUpdateLogsDir`
-   *
-   * 作者: gaohongshun
-   *
-   * 时间: 2026-04-02
-   *
-   * # 参数
-   * 无
-   *
-   * # 返回
-   * 返回函数执行结果
-   */
-  const handleOpenUpdateLogsDir = () => {
-    void appClient
-      .openUpdateLogsDir(preparedUpdate?.assetPath)
-      .catch((error) => {
-        toast.error(`${t("打开日志目录失败")}: ${getAppErrorMessage(error)}`);
-      });
-  };
-
-  const envOverrideCatalog = snapshot?.envOverrideCatalog ?? [];
+  const envOverrideCatalog = (snapshot?.envOverrideCatalog ?? []).filter((item) =>
+    SERVER_ENV_ALLOWED_KEYS.has(item.key),
+  );
   const filteredEnvCatalog = (!envSearch
     ? envOverrideCatalog
     : envOverrideCatalog.filter((item) => {
@@ -618,25 +502,57 @@ export default function SettingsPage() {
     return effectiveValue !== defaultValue;
   });
 
-  const activeWorkerPreset = snapshot
-    ? (workerRecommendation &&
-      matchesRecommendedWorkerSettings(snapshot, workerRecommendation)
-        ? (WORKER_PRESETS.find((preset) => preset.key === "recommended") ?? null)
-        : (WORKER_PRESETS.find(
-            (preset) =>
-              preset.key !== "recommended" &&
-              WORKER_PRESET_KEYS.every(
-                (key) =>
-                  snapshot.backgroundTasks[key] === preset.backgroundTasks[key],
-              ),
-          ) ?? null))
-    : null;
+  const activeWorkerPreset =
+    WORKER_PRESETS.find((preset) => preset.key === "recommended") ?? null;
   const activeWorkerModeValue = activeWorkerPreset?.key ?? CUSTOM_WORKER_MODE_VALUE;
   const activeWorkerSummary = activeWorkerPreset
-    ? activeWorkerPreset.key === "recommended"
-      ? t("已按当前机器资源自动推荐，适合作为这台机器的默认档位。")
-      : t(activeWorkerPreset.summary)
+    ? t("当前默认展示为推荐档位；如果你已手动改过高级参数，实际生效值仍以下方高级参数和后端配置为准。")
     : t("当前配置来自高级参数，可在高级参数中继续微调。");
+
+  const updateModelForwardRuleRow = (
+    index: number,
+    field: keyof ModelForwardRuleRow,
+    value: string,
+  ) => {
+    const nextRows = modelForwardRuleRows.map((row, rowIndex) =>
+      rowIndex === index ? { ...row, [field]: value } : row,
+    );
+    setModelForwardRulesDraft({
+      ...modelForwardRulesEditor,
+      rows: nextRows,
+    });
+  };
+
+  const appendModelForwardRuleRow = () => {
+    setModelForwardRulesDraft({
+      ...modelForwardRulesEditor,
+      rows: [...modelForwardRuleRows, { source: "", target: "" }],
+    });
+  };
+
+  const removeModelForwardRuleRow = (index: number) => {
+    const nextRows = modelForwardRuleRows.filter((_, rowIndex) => rowIndex !== index);
+    setModelForwardRulesDraft({
+      ...modelForwardRulesEditor,
+      rows: nextRows,
+    });
+  };
+
+  const saveModelForwardRules = () => {
+    if (
+      modelForwardRulesSerialized.trim() ===
+      (snapshot.modelForwardRules || "").trim()
+    ) {
+      setModelForwardRulesDraft(null);
+      return;
+    }
+    void updateSettings
+      .mutateAsync({
+        modelForwardRules: modelForwardRulesSerialized,
+      })
+      .then(() => setModelForwardRulesDraft(null))
+      .catch(() => undefined);
+  };
 
   const lastIntentThemeRef = useRef<string | null>(null);
   const lastIntentAppearancePresetRef = useRef<string | null>(null);
@@ -1104,92 +1020,63 @@ export default function SettingsPage() {
           <Card className="glass-card border-none shadow-md">
             <CardHeader>
               <div className="flex items-center gap-2">
-                <AppWindow className="h-4 w-4 text-primary" />
-                <CardTitle className="text-base">{t("基础设置")}</CardTitle>
+                <Globe className="h-4 w-4 text-primary" />
+                <CardTitle className="text-base">{t("上游代理")}</CardTitle>
               </div>
-              <CardDescription>{t("控制应用启动和窗口行为")}</CardDescription>
+              <CardDescription>{t("为服务端出站请求配置统一代理")}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="flex flex-col gap-3 rounded-2xl border border-border/50 bg-background/45 p-4 md:flex-row md:items-center md:justify-between">
+              <div className="grid gap-2">
+                <Label>{t("上游代理 (Proxy)")}</Label>
+                <Input
+                  placeholder="http://127.0.0.1:7890"
+                  className="h-10 max-w-md font-mono"
+                  value={upstreamProxyInput}
+                  onChange={(event) =>
+                    setUpstreamProxyDraft(event.target.value)
+                  }
+                  onBlur={() => {
+                    if (upstreamProxyDraft == null) return;
+                    if (
+                      upstreamProxyInput === (snapshot.upstreamProxyUrl || "")
+                    ) {
+                      setUpstreamProxyDraft(null);
+                      return;
+                    }
+                    void updateSettings
+                      .mutateAsync({ upstreamProxyUrl: upstreamProxyInput })
+                      .then(() => setUpstreamProxyDraft(null))
+                      .catch(() => undefined);
+                  }}
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  {t("支持 http/https/socks5，留空表示直连。")}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="glass-card border-none shadow-md">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <SettingsIcon className="h-4 w-4 text-primary" />
+                <CardTitle className="text-base">{t("密码")}</CardTitle>
+              </div>
+              <CardDescription>{t("管理 Web 管理页访问密码")}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between gap-4 rounded-2xl border border-border/50 bg-background/45 p-4">
                 <div className="space-y-1">
-                  <Label>{updateActionLabel}</Label>
+                  <Label>{t("访问密码")}</Label>
                   <p className="text-xs text-muted-foreground">
-                    {updateActionDescription}
+                    {snapshot.webAccessPasswordConfigured
+                      ? t("当前已启用访问密码保护")
+                      : t("当前未设置访问密码，Web 管理页处于公开状态")}
                   </p>
-                  {lastUpdateCheck ? (
-                    <p className="text-xs text-muted-foreground">
-                      {preparedUpdate
-                        ? `${t("已下载")} ${preparedUpdate.latestVersion || preparedUpdate.releaseTag || t("新版本")}${t("，等待替换更新")}`
-                        : lastUpdateCheck.hasUpdate
-                          ? `${t("发现新版本")} ${lastUpdateCheck.latestVersion || lastUpdateCheck.releaseTag || t("可用")}`
-                          : lastUpdateCheck.reason ||
-                            `${t("当前版本")} ${lastUpdateCheck.currentVersion || t("未知")} ${t("已是最新")}`}
-                    </p>
-                  ) : null}
-                  {shouldShowUpdateLogsEntry ? (
-                    <div className="pt-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-auto px-0 text-xs text-muted-foreground hover:text-foreground"
-                        onClick={handleOpenUpdateLogsDir}
-                      >
-                        <FolderOpen className="h-3.5 w-3.5" />
-                        {t("打开日志目录")}
-                      </Button>
-                    </div>
-                  ) : null}
                 </div>
-                <Button
-                  variant="outline"
-                  className="gap-2 self-start md:self-auto"
-                  disabled={!canSelfUpdate || updateActionBusy}
-                  onClick={handleUpdateAction}
-                >
-                  {manualUpdateCheckPending ? (
-                    <RefreshCw className="h-4 w-4 animate-spin" />
-                  ) : prepareUpdate.isPending ? (
-                    <Download className="h-4 w-4 animate-pulse" />
-                  ) : applyPreparedUpdate.isPending ? (
-                    <RefreshCw className="h-4 w-4 animate-spin" />
-                  ) : hasPreparedUpdate ? (
-                    <Check className="h-4 w-4" />
-                  ) : canDownloadUpdate ? (
-                    <Download className="h-4 w-4" />
-                  ) : (
-                    <RefreshCw className="h-4 w-4" />
-                  )}
-                  {updateActionBusyLabel}
+                <Button variant="outline" onClick={() => setWebPasswordModalOpen(true)}>
+                  {t("修改密码")}
                 </Button>
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>{t("关闭时最小化到托盘")}</Label>
-                  <p className="text-xs text-muted-foreground">
-                    {t("点击关闭按钮不会直接退出程序")}
-                  </p>
-                </div>
-                <Switch
-                  checked={snapshot.closeToTrayOnClose}
-                  disabled={!canCloseToTray || !snapshot.closeToTraySupported}
-                  onCheckedChange={(value) =>
-                    updateSettings.mutate({ closeToTrayOnClose: value })
-                  }
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>{t("视觉性能模式")}</Label>
-                  <p className="text-xs text-muted-foreground">
-                    {t("关闭毛玻璃等特效以提升低配电脑性能")}
-                  </p>
-                </div>
-                <Switch
-                  checked={snapshot.lowTransparency}
-                  onCheckedChange={(value) =>
-                    updateSettings.mutate({ lowTransparency: value })
-                  }
-                />
               </div>
             </CardContent>
           </Card>
@@ -1394,6 +1281,32 @@ export default function SettingsPage() {
               </div>
             </CardContent>
           </Card>
+
+          <Card className="glass-card border-none shadow-md">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <AppWindow className="h-4 w-4 text-primary" />
+                <CardTitle className="text-base">{t("视觉性能模式")}</CardTitle>
+              </div>
+              <CardDescription>{t("关闭毛玻璃等特效以提升低配机器的渲染稳定性")}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>{t("低透明度模式")}</Label>
+                  <p className="text-xs text-muted-foreground">
+                    {t("启用后会减少模糊和半透明效果，优先保证浏览器渲染性能。")}
+                  </p>
+                </div>
+                <Switch
+                  checked={snapshot.lowTransparency}
+                  onCheckedChange={(value) =>
+                    updateSettings.mutate({ lowTransparency: value })
+                  }
+                />
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="gateway" className="space-y-4">
@@ -1471,35 +1384,77 @@ export default function SettingsPage() {
 
               <div className="grid gap-2">
                 <Label>{t("模型转发规则")}</Label>
-                <Textarea
-                  className="min-h-[132px] max-w-2xl font-mono text-xs"
-                  placeholder={"spark*=gpt-5.4-mini\nclaude-sonnet-4*=gpt-5.4"}
-                  value={modelForwardRulesInput}
-                  onChange={(event) =>
-                    setModelForwardRulesDraft(event.target.value)
-                  }
-                  onBlur={() => {
-                    if (modelForwardRulesDraft == null) return;
-                    if (
-                      modelForwardRulesInput.trim() ===
-                      (snapshot.modelForwardRules || "").trim()
-                    ) {
-                      setModelForwardRulesDraft(null);
-                      return;
-                    }
-                    void updateSettings
-                      .mutateAsync({
-                        modelForwardRules: modelForwardRulesInput,
-                      })
-                      .then(() => setModelForwardRulesDraft(null))
-                      .catch(() => undefined);
-                  }}
-                />
+                <div className="space-y-3 rounded-2xl border border-border/50 bg-background/45 p-4">
+                  {modelForwardRuleRows.map((row, index) => (
+                    <div
+                      key={`${index}-${row.source}-${row.target}`}
+                      className="grid gap-3 md:grid-cols-[minmax(0,1fr)_28px_minmax(0,1fr)_auto]"
+                    >
+                      <Input
+                        className="h-10 font-mono text-xs"
+                        placeholder="spark*"
+                        value={row.source}
+                        onChange={(event) =>
+                          updateModelForwardRuleRow(index, "source", event.target.value)
+                        }
+                      />
+                      <div className="flex items-center justify-center text-xs text-muted-foreground">
+                        →
+                      </div>
+                      <Input
+                        className="h-10 font-mono text-xs"
+                        placeholder="gpt-5.4-mini"
+                        value={row.target}
+                        onChange={(event) =>
+                          updateModelForwardRuleRow(index, "target", event.target.value)
+                        }
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-10 w-10"
+                        onClick={() => removeModelForwardRuleRow(index)}
+                        disabled={modelForwardRuleRows.length === 1 && !row.source && !row.target}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="gap-2"
+                      onClick={appendModelForwardRuleRow}
+                    >
+                      <Plus className="h-4 w-4" />
+                      {t("添加规则")}
+                    </Button>
+                    <Button
+                      type="button"
+                      className="gap-2"
+                      onClick={saveModelForwardRules}
+                      disabled={updateSettings.isPending}
+                    >
+                      <Save className="h-4 w-4" />
+                      {t("保存规则")}
+                    </Button>
+                  </div>
+                </div>
                 <p className="text-[10px] text-muted-foreground">
-                  {t("一行一条，格式为")} <code>{t("源模型=目标模型")}</code>，{t("支持")}
-                  <code>*</code>{" "}
-                  {t("通配。平台 Key 没有强绑模型时，会先按这里把请求模型改写，再进入账号路由。")}
+                  {t("保存时仍会写回原始兼容格式")} <code>{t("源模型=目标模型")}</code>
+                  {t("；支持")}
+                  <code>*</code>
+                  {t("通配。平台 Key 没有强绑模型时，会先按这里改写请求模型，再进入账号路由。")}
                 </p>
+                {modelForwardRulesEditor.passthroughLines.length > 0 ? (
+                  <p className="text-[10px] text-muted-foreground">
+                    {t("检测到 {count} 行注释或非规则内容，保存时会一并保留。", {
+                      count: modelForwardRulesEditor.passthroughLines.length,
+                    })}
+                  </p>
+                ) : null}
               </div>
 
               <div className="grid gap-2 border-t pt-6">
@@ -1635,35 +1590,6 @@ export default function SettingsPage() {
                   {t("。")}
                 </p>
               </div>
-
-              <div className="grid gap-2 pt-2">
-                <Label>{t("上游代理 (Proxy)")}</Label>
-                <Input
-                  placeholder="http://127.0.0.1:7890"
-                  className="h-10 max-w-md font-mono"
-                  value={upstreamProxyInput}
-                  onChange={(event) =>
-                    setUpstreamProxyDraft(event.target.value)
-                  }
-                  onBlur={() => {
-                    if (upstreamProxyDraft == null) return;
-                    if (
-                      upstreamProxyInput === (snapshot.upstreamProxyUrl || "")
-                    ) {
-                      setUpstreamProxyDraft(null);
-                      return;
-                    }
-                    void updateSettings
-                      .mutateAsync({ upstreamProxyUrl: upstreamProxyInput })
-                      .then(() => setUpstreamProxyDraft(null))
-                      .catch(() => undefined);
-                  }}
-                />
-                <p className="text-[10px] text-muted-foreground">
-                  {t("支持 http/https/socks5，留空表示直连。")}
-                </p>
-              </div>
-
               <div className="grid grid-cols-2 gap-4 border-t pt-6">
                 <div className="grid gap-2">
                   <Label>{t("SSE 保活间隔 (ms)")}</Label>
@@ -1982,7 +1908,7 @@ export default function SettingsPage() {
               <h3 className="text-sm font-semibold">{t("环境变量配置")}</h3>
               <p className="text-sm leading-6 text-muted-foreground">
                 {t(
-                  "这里保留旧版和外部部署环境变量覆盖；普通用户优先使用前面结构化设置，高风险项只建议排障时临时修改。",
+                  "这里只保留服务端部署下仍然有意义的环境变量覆盖；普通用户优先使用前面结构化设置，高风险项只建议排障时临时修改。",
                 )}
               </p>
             </div>
@@ -2165,9 +2091,6 @@ export default function SettingsPage() {
       <Dialog
         open={updateDialogOpen}
         onOpenChange={(open) => {
-          if (prepareUpdate.isPending || applyPreparedUpdate.isPending) {
-            return;
-          }
           setUpdateDialogOpen(open);
         }}
       >
@@ -2176,19 +2099,13 @@ export default function SettingsPage() {
           className="glass-card border-none p-6 sm:max-w-[480px]"
         >
           <DialogHeader>
-            <DialogTitle>
-              {preparedUpdate ? t("替换更新") : t("发现新版本")}
-            </DialogTitle>
+            <DialogTitle>{t("发现新版本")}</DialogTitle>
             <DialogDescription>
-              {preparedUpdate
-                ? preparedUpdate.isPortable
-                  ? t("更新包已下载完成。确认后将重启应用并替换当前程序。")
-                  : t("更新包已下载完成。确认后会开始替换流程。")
-                : `${t("当前版本")} ${updateDialogCheck?.currentVersion || t("未知")}，${t("发现新版本")} ${
-                    updateDialogCheck?.latestVersion ||
-                    updateDialogCheck?.releaseTag ||
-                    t("可用")
-                  }。`}
+              {`${t("当前版本")} ${updateDialogCheck?.currentVersion || t("未知")}，${t("发现新版本")} ${
+                updateDialogCheck?.latestVersion ||
+                updateDialogCheck?.releaseTag ||
+                t("可用")
+              }。`}
             </DialogDescription>
           </DialogHeader>
 
@@ -2203,37 +2120,26 @@ export default function SettingsPage() {
               <div className="mt-2 flex items-center justify-between gap-4">
                 <span className="text-muted-foreground">{t("目标版本")}</span>
                 <span className="font-medium">
-                  {preparedUpdate?.latestVersion ||
-                    updateDialogCheck?.latestVersion ||
+                  {updateDialogCheck?.latestVersion ||
                     updateDialogCheck?.releaseTag ||
                     t("未知")}
                 </span>
               </div>
               <div className="mt-2 flex items-center justify-between gap-4">
-                <span className="text-muted-foreground">{t("更新模式")}</span>
+                <span className="text-muted-foreground">{t("推荐方式")}</span>
                 <span className="font-medium">
-                  {(preparedUpdate?.isPortable ?? updateDialogCheck?.isPortable)
-                    ? t("便携包更新")
-                    : t("安装包更新")}
+                  {t("Docker / Linux 发布")}
                 </span>
               </div>
-              {preparedUpdate?.assetName ? (
-                <div className="mt-2 flex items-center justify-between gap-4">
-                  <span className="text-muted-foreground">{t("更新文件")}</span>
-                  <span className="max-w-[240px] truncate font-mono text-xs">
-                    {preparedUpdate.assetName}
-                  </span>
-                </div>
-              ) : null}
             </div>
 
-            {preparedUpdate ? null : updateDialogCheck?.reason ? (
+            {updateDialogCheck?.reason ? (
               <div className="rounded-2xl border border-border/50 bg-muted/40 p-4 text-xs leading-5 text-muted-foreground">
                 {updateDialogCheck.reason}
               </div>
             ) : (
               <div className="rounded-2xl border border-border/50 bg-muted/40 p-4 text-xs leading-5 text-muted-foreground">
-                {t("建议先下载更新包，下载完成后再执行安装或重启更新。")}
+                {t("Web / Docker 版不会在页面内执行自更新。请打开发布页，按照最新 Release 中的 Docker 或 Linux 包方式完成升级。")}
               </div>
             )}
           </div>
@@ -2241,45 +2147,14 @@ export default function SettingsPage() {
           <DialogFooter className="gap-2 sm:gap-2">
             <Button
               variant="outline"
-              disabled={
-                prepareUpdate.isPending || applyPreparedUpdate.isPending
-              }
               onClick={() => setUpdateDialogOpen(false)}
             >
               {t("稍后")}
             </Button>
-            {preparedUpdate ? (
-              <Button
-                className="gap-2"
-                disabled={applyPreparedUpdate.isPending}
-                onClick={() =>
-                  applyPreparedUpdate.mutate({
-                    isPortable: preparedUpdate.isPortable,
-                  })
-                }
-              >
-                <Download className="h-4 w-4" />
-                {applyPreparedUpdate.isPending
-                  ? preparedUpdate.isPortable
-                    ? t("正在替换更新...")
-                    : t("正在启动替换...")
-                  : t("替换更新")}
-              </Button>
-            ) : updateDialogCheck?.canPrepare ? (
-              <Button
-                className="gap-2"
-                disabled={prepareUpdate.isPending}
-                onClick={() => prepareUpdate.mutate()}
-              >
-                <Download className="h-4 w-4" />
-                {prepareUpdate.isPending ? t("正在下载更新...") : t("下载更新")}
-              </Button>
-            ) : (
-              <Button className="gap-2" onClick={handleOpenReleasePage}>
-                <ExternalLink className="h-4 w-4" />
-                {t("打开发布页")}
-              </Button>
-            )}
+            <Button className="gap-2" onClick={handleOpenReleasePage}>
+              <ExternalLink className="h-4 w-4" />
+              {t("打开发布页")}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -2292,6 +2167,10 @@ export default function SettingsPage() {
         confirmText={t("确认恢复")}
         cancelText={t("取消")}
         onConfirm={handleResetAllEnv}
+      />
+      <WebPasswordModal
+        open={webPasswordModalOpen}
+        onOpenChange={setWebPasswordModalOpen}
       />
     </div>
   );

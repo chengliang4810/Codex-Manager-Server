@@ -191,6 +191,10 @@ export function CodexCliOnboardingDialog({
   onAcknowledge,
 }: CodexCliOnboardingDialogProps) {
   const { t } = useI18n();
+  const gatewayBaseUrl =
+    typeof window === "undefined"
+      ? "http://localhost:48761/v1"
+      : `${window.location.origin}/v1`;
   const [currentStep, setCurrentStep] = useState(0);
   const [dismissPermanently, setDismissPermanently] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -204,10 +208,14 @@ export function CodexCliOnboardingDialog({
     if (!line) {
       return "";
     }
+    const normalizedLine = line.replace(
+      'http://localhost:48760/v1',
+      gatewayBaseUrl,
+    );
     if (!comment) {
-      return line;
+      return normalizedLine;
     }
-    return `# ${t(comment)}\n${line}`;
+    return `# ${t(comment)}\n${normalizedLine}`;
   }).join("\n");
 
   useEffect(() => {
@@ -240,9 +248,6 @@ export function CodexCliOnboardingDialog({
   const handleOpenChange = (nextOpen: boolean) => {
     if (isSaving) {
       return;
-    }
-    if (!nextOpen) {
-      setDismissPermanently(false);
     }
     onOpenChange(nextOpen);
   };

@@ -60,3 +60,37 @@ test("compareEnvOverrideItems 将高风险请求语义项排在普通项之后",
     "CODEXMANAGER_STRICT_REQUEST_PARAM_ALLOWLIST",
   ]);
 });
+
+test("parseModelForwardRuleRows 解析可编辑的模型转发规则行并保留注释行", () => {
+  const result = helpers.parseModelForwardRuleRows(
+    "# keep\nspark*=gpt-5.4-mini\nclaude-sonnet-4*=gpt-5.4\ninvalid-line"
+  );
+
+  assert.deepEqual(
+    result.rows.map((row) => ({
+      source: row.source,
+      target: row.target,
+    })),
+    [
+      { source: "spark*", target: "gpt-5.4-mini" },
+      { source: "claude-sonnet-4*", target: "gpt-5.4" },
+    ]
+  );
+  assert.deepEqual(result.passthroughLines, ["# keep", "invalid-line"]);
+});
+
+test("serializeModelForwardRuleRows 在保存时输出原始兼容格式", () => {
+  const serialized = helpers.serializeModelForwardRuleRows(
+    [
+      { source: " spark* ", target: " gpt-5.4-mini " },
+      { source: "", target: "skip-me" },
+      { source: "claude-sonnet-4*", target: "gpt-5.4" },
+    ],
+    ["# keep"]
+  );
+
+  assert.equal(
+    serialized,
+    "# keep\nspark*=gpt-5.4-mini\nclaude-sonnet-4*=gpt-5.4"
+  );
+});

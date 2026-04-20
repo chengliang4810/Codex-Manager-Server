@@ -1,8 +1,6 @@
 import type { RuntimeCapabilities, RuntimeMode } from "@/types";
 
 export const DEFAULT_WEB_RPC_BASE_URL = "/api/rpc";
-export const DEFAULT_UNSUPPORTED_WEB_REASON =
-  "当前页面缺少 CodexManager Web 运行壳，无法访问管理 RPC。请通过 codexmanager-web 打开，或在反向代理中转发 /api/rpc。";
 
 export type RuntimeCapabilityView = {
   runtimeCapabilities: RuntimeCapabilities | null;
@@ -10,10 +8,6 @@ export type RuntimeCapabilityView = {
   isDesktopRuntime: boolean;
   isUnsupportedWebRuntime: boolean;
   canAccessManagementRpc: boolean;
-  canManageService: boolean;
-  canSelfUpdate: boolean;
-  canCloseToTray: boolean;
-  canOpenLocalDir: boolean;
   canUseBrowserFileImport: boolean;
   canUseBrowserDownloadExport: boolean;
 };
@@ -109,38 +103,7 @@ export function normalizeRpcBaseUrl(value: string | null | undefined): string {
  * 返回函数执行结果
  */
 export function isRuntimeMode(value: string): value is RuntimeMode {
-  return (
-    value === "desktop-tauri" ||
-    value === "web-gateway" ||
-    value === "unsupported-web"
-  );
-}
-
-/**
- * 函数 `buildDesktopRuntimeCapabilities`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * 无
- *
- * # 返回
- * 返回函数执行结果
- */
-export function buildDesktopRuntimeCapabilities(): RuntimeCapabilities {
-  return {
-    mode: "desktop-tauri",
-    rpcBaseUrl: DEFAULT_WEB_RPC_BASE_URL,
-    canManageService: true,
-    canSelfUpdate: true,
-    canCloseToTray: true,
-    canOpenLocalDir: true,
-    canUseBrowserFileImport: true,
-    canUseBrowserDownloadExport: true,
-    unsupportedReason: null,
-  };
+  return value === "web-gateway";
 }
 
 /**
@@ -162,44 +125,8 @@ export function buildWebGatewayRuntimeCapabilities(
   return {
     mode: "web-gateway",
     rpcBaseUrl: normalizeRpcBaseUrl(rpcBaseUrl) || DEFAULT_WEB_RPC_BASE_URL,
-    canManageService: false,
-    canSelfUpdate: false,
-    canCloseToTray: false,
-    canOpenLocalDir: false,
     canUseBrowserFileImport: true,
     canUseBrowserDownloadExport: true,
-    unsupportedReason: null,
-  };
-}
-
-/**
- * 函数 `buildUnsupportedWebCapabilities`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - reason: 参数 reason
- * - rpcBaseUrl: 参数 rpcBaseUrl
- *
- * # 返回
- * 返回函数执行结果
- */
-export function buildUnsupportedWebCapabilities(
-  reason = DEFAULT_UNSUPPORTED_WEB_REASON,
-  rpcBaseUrl = DEFAULT_WEB_RPC_BASE_URL
-): RuntimeCapabilities {
-  return {
-    mode: "unsupported-web",
-    rpcBaseUrl: normalizeRpcBaseUrl(rpcBaseUrl) || DEFAULT_WEB_RPC_BASE_URL,
-    canManageService: false,
-    canSelfUpdate: false,
-    canCloseToTray: false,
-    canOpenLocalDir: false,
-    canUseBrowserFileImport: false,
-    canUseBrowserDownloadExport: false,
-    unsupportedReason: reason,
   };
 }
 
@@ -225,33 +152,13 @@ export function normalizeRuntimeCapabilities(
   const modeValue = asString(source.mode);
   const mode: RuntimeMode = isRuntimeMode(modeValue) ? modeValue : "web-gateway";
   const defaultCapabilities =
-    mode === "desktop-tauri"
-      ? buildDesktopRuntimeCapabilities()
-      : mode === "unsupported-web"
-        ? buildUnsupportedWebCapabilities(undefined, fallbackRpcBaseUrl)
-        : buildWebGatewayRuntimeCapabilities(fallbackRpcBaseUrl);
+    buildWebGatewayRuntimeCapabilities(fallbackRpcBaseUrl);
 
   return {
     mode,
     rpcBaseUrl:
       normalizeRpcBaseUrl(asString(source.rpcBaseUrl)) ||
       defaultCapabilities.rpcBaseUrl,
-    canManageService: asBoolean(
-      source.canManageService,
-      defaultCapabilities.canManageService
-    ),
-    canSelfUpdate: asBoolean(
-      source.canSelfUpdate,
-      defaultCapabilities.canSelfUpdate
-    ),
-    canCloseToTray: asBoolean(
-      source.canCloseToTray,
-      defaultCapabilities.canCloseToTray
-    ),
-    canOpenLocalDir: asBoolean(
-      source.canOpenLocalDir,
-      defaultCapabilities.canOpenLocalDir
-    ),
     canUseBrowserFileImport: asBoolean(
       source.canUseBrowserFileImport,
       defaultCapabilities.canUseBrowserFileImport
@@ -260,8 +167,6 @@ export function normalizeRuntimeCapabilities(
       source.canUseBrowserDownloadExport,
       defaultCapabilities.canUseBrowserDownloadExport
     ),
-    unsupportedReason:
-      asString(source.unsupportedReason) || defaultCapabilities.unsupportedReason || null,
   };
 }
 
@@ -281,25 +186,18 @@ export function normalizeRuntimeCapabilities(
  */
 export function resolveRuntimeCapabilityView(
   runtimeCapabilities: RuntimeCapabilities | null,
-  desktopFallback: boolean
+  _desktopFallback: boolean
 ): RuntimeCapabilityView {
-  const resolvedCapabilities = runtimeCapabilities ??
-    (desktopFallback
-      ? buildDesktopRuntimeCapabilities()
-      : buildUnsupportedWebCapabilities());
+  const resolvedCapabilities =
+    runtimeCapabilities ?? buildWebGatewayRuntimeCapabilities();
   const mode = resolvedCapabilities.mode;
-  const isDesktopRuntime = mode === "desktop-tauri";
 
   return {
     runtimeCapabilities,
     mode,
-    isDesktopRuntime,
-    isUnsupportedWebRuntime: mode === "unsupported-web",
-    canAccessManagementRpc: mode !== "unsupported-web",
-    canManageService: resolvedCapabilities.canManageService,
-    canSelfUpdate: resolvedCapabilities.canSelfUpdate,
-    canCloseToTray: resolvedCapabilities.canCloseToTray,
-    canOpenLocalDir: resolvedCapabilities.canOpenLocalDir,
+    isDesktopRuntime: false,
+    isUnsupportedWebRuntime: false,
+    canAccessManagementRpc: true,
     canUseBrowserFileImport: resolvedCapabilities.canUseBrowserFileImport,
     canUseBrowserDownloadExport: resolvedCapabilities.canUseBrowserDownloadExport,
   };

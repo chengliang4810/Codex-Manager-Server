@@ -254,14 +254,6 @@ export function createWebCommandMap(
     service_usage_list: { rpcMethod: "account/usage/list" },
     service_usage_refresh: { rpcMethod: "account/usage/refresh" },
     service_usage_aggregate: { rpcMethod: "account/usage/aggregate" },
-    service_aggregate_api_list: { rpcMethod: "aggregateApi/list" },
-    service_aggregate_api_create: { rpcMethod: "aggregateApi/create" },
-    service_aggregate_api_update: { rpcMethod: "aggregateApi/update" },
-    service_aggregate_api_delete: { rpcMethod: "aggregateApi/delete" },
-    service_aggregate_api_read_secret: { rpcMethod: "aggregateApi/readSecret" },
-    service_aggregate_api_test_connection: {
-      rpcMethod: "aggregateApi/testConnection",
-    },
     service_login_start: {
       rpcMethod: "account/login/start",
       mapParams: (params) => ({
@@ -376,11 +368,6 @@ export function createWebCommandMap(
     open_in_file_manager: {
       direct: async () => {
         throw new Error("当前环境不支持打开本地目录");
-      },
-    },
-    app_update_open_logs_dir: {
-      direct: async () => {
-        throw new Error("当前环境不支持打开更新日志目录");
       },
     },
   };

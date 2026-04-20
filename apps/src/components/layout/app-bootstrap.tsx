@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePathname } from "next/navigation";
-import { AlertCircle, Play, RefreshCw } from "lucide-react";
+import { AlertCircle, RefreshCw } from "lucide-react";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
 import { useAppStore } from "@/lib/store/useAppStore";
@@ -18,10 +18,10 @@ import { loadRuntimeCapabilities } from "@/lib/api/transport";
 import { Button } from "@/components/ui/button";
 import { CodexCliOnboardingDialog } from "@/components/layout/codex-cli-onboarding-dialog";
 import { applyAppearancePreset } from "@/lib/appearance";
-import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
 import { useLocalDayRange } from "@/hooks/useLocalDayRange";
 import {
   formatServiceError,
+  getDefaultBrowserGatewayAddr,
   isExpectedInitializeResult,
   normalizeServiceAddr,
 } from "@/lib/utils/service";
@@ -31,7 +31,7 @@ import {
   normalizeRoutePath,
 } from "@/lib/utils/static-routes";
 
-const DEFAULT_SERVICE_ADDR = "localhost:48760";
+const DEFAULT_SERVICE_ADDR = "localhost:48761";
 const STARTUP_WARMUP_LABEL = "[startup warmup]";
 /**
  * 函数 `sleep`
@@ -77,8 +77,6 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
   const localDayRange = useLocalDayRange();
   const queryClient = useQueryClient();
   const pathname = usePathname();
-  const { canManageService, isDesktopRuntime, isUnsupportedWebRuntime } =
-    useRuntimeCapabilities();
   const [isInitializing, setIsInitializing] = useState(true);
   const hasInitializedOnce = useRef(false);
   const hasBootstrappedOnce = useRef(false);
@@ -86,7 +84,6 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
   const runtimeCapabilitiesRef = useRef(runtimeCapabilities);
   const [error, setError] = useState<string | null>(null);
   const [guideSessionDismissed, setGuideSessionDismissed] = useState(false);
-  const supportsLocalServiceStart = canManageService;
 
   useEffect(() => {
     serviceStatusRef.current = serviceStatus;
@@ -138,14 +135,6 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
     throw lastError || new Error(t("服务初始化失败: {addr}", { addr }));
   }, [t]);
 
-  const startAndInitializeService = useCallback(
-    async (addr: string) => {
-      await serviceClient.start(addr);
-      return initializeService(addr, 2);
-    },
-    [initializeService]
-  );
-
   const prefetchStartupSnapshot = useCallback(
     async (addr: string) => {
       await queryClient.prefetchQuery({
@@ -167,10 +156,7 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
   );
 
   const shouldBlockOnInitialDashboardSnapshot = useCallback(
-    (desktopRuntime: boolean) =>
-      desktopRuntime &&
-      !hasInitializedOnce.current &&
-      normalizeRoutePath(pathname) === "/",
+    () => !hasInitializedOnce.current && normalizeRoutePath(pathname) === "/",
     [pathname],
   );
 
@@ -211,28 +197,16 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
     setError(null);
 
     try {
-      const detectedRuntimeCapabilities = await loadRuntimeCapabilities(
-        runtimeCapabilitiesRef.current?.mode === "unsupported-web"
-      );
+      const detectedRuntimeCapabilities = await loadRuntimeCapabilities();
       setRuntimeCapabilities(detectedRuntimeCapabilities);
-      const desktopRuntime = detectedRuntimeCapabilities.mode === "desktop-tauri";
       const shouldBlockOnDashboardSnapshot =
-        shouldBlockOnInitialDashboardSnapshot(desktopRuntime);
-
-      if (detectedRuntimeCapabilities.mode === "unsupported-web") {
-        if (!hasInitializedOnce.current) {
-          setServiceStatus({ connected: false, version: "" });
-          setError(
-            detectedRuntimeCapabilities.unsupportedReason ||
-              t("当前 Web 运行方式不受支持")
-          );
-        }
-        setIsInitializing(false);
-        return;
-      }
+        shouldBlockOnInitialDashboardSnapshot();
 
       const settings = await appClient.getSettings();
-      const addr = normalizeServiceAddr(settings.serviceAddr || DEFAULT_SERVICE_ADDR);
+      const fallbackAddr = getDefaultBrowserGatewayAddr();
+      const addr = normalizeServiceAddr(
+        settings.serviceAddr || fallbackAddr || DEFAULT_SERVICE_ADDR
+      );
       const currentServiceStatus = serviceStatusRef.current;
       
       const currentAppliedTheme = typeof document !== 'undefined' ? document.documentElement.getAttribute('data-theme') : null;
@@ -250,14 +224,7 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
       }
 
       try {
-        try {
-          await initializeService(addr, 1);
-        } catch (initializeError) {
-          if (!desktopRuntime) {
-            throw initializeError;
-          }
-          await startAndInitializeService(addr);
-        }
+        await initializeService(addr, 1);
         await applyConnectedServiceState(
           addr,
           "",
@@ -285,60 +252,9 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
     setRuntimeCapabilities,
     setServiceStatus,
     setTheme,
-    startAndInitializeService,
     shouldBlockOnInitialDashboardSnapshot,
     t,
   ]);
-
-  /**
-   * 函数 `handleForceStart`
-   *
-   * 作者: gaohongshun
-   *
-   * 时间: 2026-04-02
-   *
-   * # 参数
-   * 无
-   *
-   * # 返回
-   * 返回函数执行结果
-   */
-  const handleForceStart = async () => {
-    if (!supportsLocalServiceStart) {
-      void init();
-      return;
-    }
-
-    setIsInitializing(true);
-    setError(null);
-    try {
-      const addr = normalizeServiceAddr(serviceStatus.addr || DEFAULT_SERVICE_ADDR);
-      const settings = await appClient.setSettings({ serviceAddr: addr });
-      
-      const currentAppliedTheme = typeof document !== 'undefined' ? document.documentElement.getAttribute('data-theme') : null;
-      if (settings.theme && settings.theme !== currentAppliedTheme) {
-        setTheme(settings.theme);
-      }
-      applyAppearancePreset(settings.appearancePreset);
-      
-      setAppSettings(settings);
-      await startAndInitializeService(addr);
-      await applyConnectedServiceState(
-        addr,
-        "",
-        settings.lowTransparency,
-        {
-          blockOnDashboardSnapshot:
-            shouldBlockOnInitialDashboardSnapshot(true),
-        },
-      );
-      toast.success(t("服务已连接"));
-    } catch (startError: unknown) {
-      setServiceStatus({ connected: false, version: "" });
-      setError(formatServiceError(startError));
-      setIsInitializing(false);
-    }
-  };
 
   const handleGuideOpenChange = useCallback((open: boolean) => {
     if (open) {
@@ -379,11 +295,16 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
       return;
     }
     hasBootstrappedOnce.current = true;
-    void init();
+    const frameId = window.requestAnimationFrame(() => {
+      void init();
+    });
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
   }, [init]);
 
   useEffect(() => {
-    if (isDesktopRuntime || typeof window === "undefined") {
+    if (typeof window === "undefined") {
       return;
     }
 
@@ -393,7 +314,7 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
     }
 
     window.history.replaceState(window.history.state, "", canonicalUrl);
-  }, [isDesktopRuntime, pathname]);
+  }, [pathname]);
 
   const showLoading = isInitializing && !hasInitializedOnce.current;
   const showError = !!error && !hasInitializedOnce.current;
@@ -402,12 +323,10 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
     serviceStatus.connected &&
     !showLoading &&
     !showError &&
-    !isUnsupportedWebRuntime &&
     !guideSessionDismissed &&
     !appSettings.codexCliGuideDismissed;
   return (
     <>
-      {/* Always keep children mounted to prevent Header/Sidebar remounting 'reload' feel */}
       {children}
 
       <CodexCliOnboardingDialog
@@ -416,58 +335,33 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
         onAcknowledge={handleGuideAcknowledge}
       />
 
-      {(showLoading || showError) && (
-        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-background">
-          <div className="flex w-full max-w-md flex-col items-center gap-6 rounded-3xl glass-card p-10 shadow-2xl animate-in fade-in zoom-in duration-500">
-            {showLoading ? (
-              <>
-                <div className="h-14 w-14 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-                <div className="flex flex-col items-center gap-2">
-                  <h2 className="text-2xl font-bold tracking-tight">{t("正在准备环境")}</h2>
-                  <p className="px-4 text-center text-sm text-muted-foreground">
-                    {t("正在同步本地配置，请稍候...")}
-                  </p>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-destructive/10">
-                  <AlertCircle className="h-8 w-8 text-destructive" />
-                </div>
-                <div className="flex flex-col items-center gap-2 text-center">
-                  <h2 className="text-xl font-bold tracking-tight text-destructive">
-                    {isUnsupportedWebRuntime
-                      ? t("当前 Web 运行方式不受支持")
-                      : t("无法同步核心服务状态")}
-                  </h2>
-                  {isUnsupportedWebRuntime ? (
-                    <p className="px-4 text-center text-sm text-muted-foreground">
-                      {t(
-                        "请通过 `codexmanager-web` 打开页面，或在反向代理中同时提供 `/api/runtime` 与 `/api/rpc`。",
-                      )}
-                    </p>
-                  ) : null}
-                  <p className="max-h-32 overflow-y-auto break-all rounded-lg bg-muted/50 p-3 font-mono text-[10px] text-muted-foreground">
-                    {error}
-                  </p>
-                </div>
-                <div
-                  className={`grid w-full gap-3 ${supportsLocalServiceStart ? "grid-cols-2" : "grid-cols-1"}`}
-                >
-                  <Button variant="outline" onClick={() => void init()} className="h-11 gap-2">
-                    <RefreshCw className="h-4 w-4" /> {t("重试")}
-                  </Button>
-                  {supportsLocalServiceStart ? (
-                    <Button onClick={handleForceStart} className="h-11 gap-2 bg-primary">
-                      <Play className="h-4 w-4" /> {t("强制启动")}
-                    </Button>
-                  ) : null}
-                </div>
-              </>
-            )}
+      {showError ? (
+        <div className="fixed bottom-5 right-5 z-50 max-w-md rounded-2xl border border-destructive/30 bg-background/95 p-4 shadow-2xl backdrop-blur">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-destructive/10">
+              <AlertCircle className="h-5 w-5 text-destructive" />
+            </div>
+            <div className="min-w-0 space-y-2">
+              <div>
+                <p className="text-sm font-semibold text-destructive">
+                  {t("无法连接核心服务")}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {t(
+                    "请确认 `codexmanager-service` 与 `codexmanager-web` 已启动，且 `/api/rpc` 可以正常访问。",
+                  )}
+                </p>
+              </div>
+              <p className="max-h-24 overflow-y-auto break-all rounded-lg bg-muted/50 p-2 font-mono text-[10px] text-muted-foreground">
+                {error}
+              </p>
+              <Button variant="outline" onClick={() => void init()} className="h-9 gap-2">
+                <RefreshCw className="h-4 w-4" /> {t("重试")}
+              </Button>
+            </div>
           </div>
         </div>
-      )}
+      ) : null}
     </>
   );
 }

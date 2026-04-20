@@ -17,7 +17,7 @@ import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
 import { useAppStore } from "@/lib/store/useAppStore";
 import { appClient } from "@/lib/api/app-client";
 import { toast } from "sonner";
-import { ShieldAlert, ShieldCheck, KeyRound, Trash2 } from "lucide-react";
+import { ShieldAlert, ShieldCheck, KeyRound } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 
 interface WebPasswordModalProps {
@@ -134,39 +134,6 @@ export function WebPasswordModal({ open, onOpenChange }: WebPasswordModalProps) 
     }
   };
 
-  /**
-   * 函数 `handleClear`
-   *
-   * 作者: gaohongshun
-   *
-   * 时间: 2026-04-02
-   *
-   * # 参数
-   * 无
-   *
-   * # 返回
-   * 返回函数执行结果
-   */
-  const handleClear = async () => {
-    if (!canAccessManagementRpc) {
-      toast.info(t("访问密码"));
-      return;
-    }
-    setIsLoading(true);
-    try {
-      const settings = await appClient.setSettings({ webAccessPassword: "" });
-      setAppSettings(settings);
-      toast.success(t("清除"));
-      onOpenChange(false);
-      setPassword("");
-      setConfirmPassword("");
-    } catch (err: unknown) {
-      toast.error(`${t("清除")} ${t("失败")}: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[425px]">
@@ -178,7 +145,7 @@ export function WebPasswordModal({ open, onOpenChange }: WebPasswordModalProps) 
             <DialogTitle>{t("访问密码")}</DialogTitle>
           </div>
           <DialogDescription>
-            {t("该密码用于保护 Web 管理页访问。在桌面端或 Web 端修改后，都会写入同一份服务配置并立即生效。")}
+            {t("该密码用于保护 Web 管理页访问。首次启动请通过环境变量注入初始密码，后续可在这里修改。")}
           </DialogDescription>
         </DialogHeader>
 
@@ -225,11 +192,6 @@ export function WebPasswordModal({ open, onOpenChange }: WebPasswordModalProps) 
         </div>
 
         <DialogFooter className="gap-2 sm:gap-0">
-          {appSettings.webAccessPasswordConfigured && (
-            <Button variant="ghost" onClick={handleClear} disabled={!canAccessManagementRpc || isLoading} className="text-destructive hover:text-destructive hover:bg-destructive/10">
-              <Trash2 className="h-4 w-4 mr-2" /> {t("清除")}
-            </Button>
-          )}
           <DialogClose
             className={buttonVariants({ variant: "outline" })}
             type="button"

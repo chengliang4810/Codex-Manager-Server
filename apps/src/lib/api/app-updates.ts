@@ -1,39 +1,8 @@
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function readStringField(payload: unknown, key: string, fallback = ""): string {
-  const source = asRecord(payload);
-  const value = source?.[key];
-  return typeof value === "string" ? value : fallback;
-}
-
-function readBooleanField(payload: unknown, key: string, fallback = false): boolean {
-  const source = asRecord(payload);
-  const value = source?.[key];
-  return typeof value === "boolean" ? value : fallback;
-}
-
-function readNumberField(payload: unknown, key: string, fallback = 0): number {
-  const source = asRecord(payload);
-  const value = source?.[key];
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-  return fallback;
-}
-
-function readNullableStringField(payload: unknown, key: string): string | null {
-  const value = readStringField(payload, key);
-  return value ? value : null;
+export interface RuntimeVersionInfo {
+  version: string;
+  releaseTag: string;
+  repository: string;
+  builtAt: string | null;
 }
 
 export interface UpdateCheckResult {
@@ -51,110 +20,151 @@ export interface UpdateCheckResult {
   checkedAtUnixSecs: number;
 }
 
-export interface UpdatePrepareResult {
-  prepared: boolean;
-  mode: string;
-  isPortable: boolean;
-  releaseTag: string;
-  latestVersion: string;
-  assetName: string;
-  assetPath: string;
-  downloaded: boolean;
+type GitHubLatestRelease = {
+  tag_name?: string;
+  name?: string | null;
+  published_at?: string | null;
+};
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
-export interface PendingUpdateResult extends UpdatePrepareResult {
-  installerPath: string | null;
-  stagingDir: string | null;
-  preparedAtUnixSecs: number;
+function asString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
 }
 
-export interface UpdateActionResult {
-  ok: boolean;
-  message: string;
+function normalizeVersion(value: string): string {
+  return value.trim().replace(/^[vV]/, "");
 }
 
-export interface UpdateStatusResult {
-  repo: string;
-  mode: string;
-  isPortable: boolean;
-  currentVersion: string;
-  currentExePath: string;
-  portableMarkerPath: string;
-  pending: PendingUpdateResult | null;
-  lastCheck: UpdateCheckResult | null;
-  lastError: string | null;
+function parseVersionParts(value: string): number[] {
+  const normalized = normalizeVersion(value);
+  const match = normalized.match(/^(\d+)\.(\d+)\.(\d+)/);
+  if (!match) {
+    return [0, 0, 0];
+  }
+  return match.slice(1).map((item) => Number(item) || 0);
 }
 
-export function readUpdateCheckResult(payload: unknown): UpdateCheckResult {
-  return {
-    repo: readStringField(payload, "repo"),
-    mode: readStringField(payload, "mode"),
-    isPortable: readBooleanField(payload, "isPortable"),
-    hasUpdate: readBooleanField(payload, "hasUpdate"),
-    canPrepare: readBooleanField(payload, "canPrepare"),
-    currentVersion: readStringField(payload, "currentVersion"),
-    latestVersion: readStringField(payload, "latestVersion"),
-    releaseTag: readStringField(payload, "releaseTag"),
-    releaseName: readNullableStringField(payload, "releaseName"),
-    publishedAt: readNullableStringField(payload, "publishedAt"),
-    reason: readNullableStringField(payload, "reason"),
-    checkedAtUnixSecs: readNumberField(payload, "checkedAtUnixSecs"),
-  };
-}
+export function compareVersions(left: string, right: string): number {
+  const leftParts = parseVersionParts(left);
+  const rightParts = parseVersionParts(right);
 
-export function readUpdatePrepareResult(payload: unknown): UpdatePrepareResult {
-  return {
-    prepared: readBooleanField(payload, "prepared"),
-    mode: readStringField(payload, "mode"),
-    isPortable: readBooleanField(payload, "isPortable"),
-    releaseTag: readStringField(payload, "releaseTag"),
-    latestVersion: readStringField(payload, "latestVersion"),
-    assetName: readStringField(payload, "assetName"),
-    assetPath: readStringField(payload, "assetPath"),
-    downloaded: readBooleanField(payload, "downloaded"),
-  };
-}
-
-export function readPendingUpdateResult(payload: unknown): PendingUpdateResult | null {
-  const source = asRecord(payload);
-  if (!source) {
-    return null;
+  for (let index = 0; index < Math.max(leftParts.length, rightParts.length); index += 1) {
+    const delta = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
+    if (delta !== 0) {
+      return delta;
+    }
   }
 
+  return 0;
+}
+
+export function readRuntimeVersionInfo(payload: unknown): RuntimeVersionInfo {
+  const source = asRecord(payload) ?? {};
+  const version = normalizeVersion(asString(source.version)) || "0.0.0";
+  const releaseTag = asString(source.releaseTag) || `v${version}`;
+  const repository =
+    asString(source.repository) || "chengliang4810/Codex-Manager-Server";
+  const builtAt = asString(source.builtAt) || null;
+
   return {
-    prepared: true,
-    mode: readStringField(source, "mode"),
-    isPortable: readBooleanField(source, "isPortable"),
-    releaseTag: readStringField(source, "releaseTag"),
-    latestVersion: readStringField(source, "latestVersion"),
-    assetName: readStringField(source, "assetName"),
-    assetPath: readStringField(source, "assetPath"),
-    downloaded: true,
-    installerPath: readNullableStringField(source, "installerPath"),
-    stagingDir: readNullableStringField(source, "stagingDir"),
-    preparedAtUnixSecs: readNumberField(source, "preparedAtUnixSecs"),
+    version,
+    releaseTag,
+    repository,
+    builtAt,
   };
 }
 
-export function readUpdateActionResult(payload: unknown): UpdateActionResult {
+export function buildInjectedRuntimeVersionInfo(
+  env: Record<string, string | undefined>,
+): RuntimeVersionInfo {
+  return readRuntimeVersionInfo({
+    version: env.NEXT_PUBLIC_CODEXMANAGER_RELEASE_VERSION,
+    releaseTag: env.NEXT_PUBLIC_CODEXMANAGER_RELEASE_TAG,
+    repository: env.NEXT_PUBLIC_CODEXMANAGER_RELEASE_REPOSITORY,
+    builtAt: env.NEXT_PUBLIC_CODEXMANAGER_RELEASE_BUILT_AT,
+  });
+}
+
+export function buildUpdateCheckResult(
+  runtimeInfo: RuntimeVersionInfo,
+  release: GitHubLatestRelease | null,
+  checkedAtUnixSecs: number
+): UpdateCheckResult {
+  const latestTag = asString(release?.tag_name) || runtimeInfo.releaseTag;
+  const latestVersion = normalizeVersion(latestTag) || runtimeInfo.version;
+  const hasUpdate = compareVersions(runtimeInfo.version, latestVersion) < 0;
+
   return {
-    ok: readBooleanField(payload, "ok"),
-    message: readStringField(payload, "message"),
+    repo: runtimeInfo.repository,
+    mode: "web-release",
+    isPortable: false,
+    hasUpdate,
+    canPrepare: false,
+    currentVersion: runtimeInfo.version,
+    latestVersion,
+    releaseTag: latestTag || runtimeInfo.releaseTag,
+    releaseName: asString(release?.name) || null,
+    publishedAt: asString(release?.published_at) || null,
+    reason: hasUpdate ? null : "当前已是最新版本",
+    checkedAtUnixSecs,
   };
 }
 
-export function readUpdateStatusResult(payload: unknown): UpdateStatusResult {
-  return {
-    repo: readStringField(payload, "repo"),
-    mode: readStringField(payload, "mode"),
-    isPortable: readBooleanField(payload, "isPortable"),
-    currentVersion: readStringField(payload, "currentVersion"),
-    currentExePath: readStringField(payload, "currentExePath"),
-    portableMarkerPath: readStringField(payload, "portableMarkerPath"),
-    pending: readPendingUpdateResult(asRecord(payload)?.pending),
-    lastCheck: asRecord(payload)?.lastCheck
-      ? readUpdateCheckResult(asRecord(payload)?.lastCheck)
-      : null,
-    lastError: readNullableStringField(payload, "lastError"),
-  };
+export async function fetchRuntimeVersionInfo(): Promise<RuntimeVersionInfo> {
+  try {
+    const response = await fetch("/api/version", {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`版本信息请求失败（HTTP ${response.status}）`);
+    }
+
+    return readRuntimeVersionInfo(await response.json());
+  } catch {
+    return buildInjectedRuntimeVersionInfo(process.env);
+  }
+}
+
+export async function fetchLatestRelease(
+  repository: string
+): Promise<GitHubLatestRelease | null> {
+  const response = await fetch(
+    `https://api.github.com/repos/${repository}/releases?per_page=1`,
+    {
+      method: "GET",
+      headers: {
+        Accept: "application/vnd.github+json",
+      },
+    }
+  );
+
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new Error(`GitHub Release 请求失败（HTTP ${response.status}）`);
+  }
+
+  const releases = (await response.json()) as GitHubLatestRelease[];
+  return Array.isArray(releases) && releases.length > 0 ? releases[0] : null;
+}
+
+export async function checkForWebUpdate(): Promise<UpdateCheckResult> {
+  const runtimeInfo = await fetchRuntimeVersionInfo();
+  const latestRelease = await fetchLatestRelease(runtimeInfo.repository);
+
+  return buildUpdateCheckResult(
+    runtimeInfo,
+    latestRelease,
+    Math.floor(Date.now() / 1000)
+  );
 }

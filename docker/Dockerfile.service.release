@@ -2,6 +2,10 @@ FROM debian:bookworm-slim
 
 ARG APP_USER=codexmanager
 ARG APP_UID=10001
+ARG RELEASE_VERSION=0.0.0
+ARG RELEASE_TAG=v0.0.0
+ARG RELEASE_REPOSITORY=chengliang4810/Codex-Manager-Server
+ARG RELEASE_BUILT_AT=unknown
 
 WORKDIR /app
 
@@ -14,6 +18,10 @@ RUN apt-get update \
     && chown -R ${APP_UID}:${APP_UID} /app /data
 
 COPY codexmanager-service /usr/local/bin/codexmanager-service
+
+RUN printf '{\n  "version": "%s",\n  "releaseTag": "%s",\n  "repository": "%s",\n  "builtAt": "%s"\n}\n' \
+      "$RELEASE_VERSION" "$RELEASE_TAG" "$RELEASE_REPOSITORY" "$RELEASE_BUILT_AT" \
+      > /app/version.json
 
 ENV CODEXMANAGER_SERVICE_ADDR=0.0.0.0:48760
 ENV CODEXMANAGER_DB_PATH=/data/codexmanager.db

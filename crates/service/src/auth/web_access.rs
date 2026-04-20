@@ -6,6 +6,26 @@ use rand::RngCore;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+const WEB_ACCESS_PASSWORD_ENV_KEY: &str = "CODEXMANAGER_WEB_ACCESS_PASSWORD";
+
+fn persisted_web_access_password_hash() -> Option<String> {
+    get_persisted_app_setting(APP_SETTING_WEB_ACCESS_PASSWORD_HASH_KEY)
+}
+
+pub fn seed_web_access_password_from_env() -> Result<bool, String> {
+    if persisted_web_access_password_hash().is_some() {
+        return Ok(false);
+    }
+    let Some(password) =
+        normalize_optional_text(std::env::var(WEB_ACCESS_PASSWORD_ENV_KEY).ok().as_deref())
+    else {
+        return Ok(false);
+    };
+    let hashed = hash_web_access_password(&password);
+    save_persisted_app_setting(APP_SETTING_WEB_ACCESS_PASSWORD_HASH_KEY, Some(&hashed))?;
+    Ok(true)
+}
+
 /// 函数 `current_web_access_password_hash`
 ///
 /// 作者: gaohongshun
@@ -18,7 +38,11 @@ use sha2::{Digest, Sha256};
 /// # 返回
 /// 返回函数执行结果
 pub fn current_web_access_password_hash() -> Option<String> {
-    get_persisted_app_setting(APP_SETTING_WEB_ACCESS_PASSWORD_HASH_KEY)
+    if let Some(value) = persisted_web_access_password_hash() {
+        return Some(value);
+    }
+    let _ = seed_web_access_password_from_env();
+    persisted_web_access_password_hash()
 }
 
 /// 函数 `web_access_password_configured`
@@ -198,4 +222,43 @@ fn hex_encode(bytes: &[u8]) -> String {
         out.push_str(&format!("{byte:02x}"));
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn seed_web_access_password_from_env_initializes_missing_password() {
+        let _guard = crate::test_env_guard();
+        std::env::remove_var("CODEXMANAGER_WEB_ACCESS_PASSWORD");
+        let _ = set_web_access_password(None);
+
+        std::env::set_var("CODEXMANAGER_WEB_ACCESS_PASSWORD", "bootstrap-secret");
+        assert_eq!(persisted_web_access_password_hash(), None);
+
+        let seeded = seed_web_access_password_from_env().expect("seed password from env");
+        assert!(seeded);
+        assert!(web_access_password_configured());
+        assert!(verify_web_access_password("bootstrap-secret"));
+
+        std::env::remove_var("CODEXMANAGER_WEB_ACCESS_PASSWORD");
+        let _ = set_web_access_password(None);
+    }
+
+    #[test]
+    fn seed_web_access_password_from_env_does_not_override_existing_password() {
+        let _guard = crate::test_env_guard();
+        std::env::remove_var("CODEXMANAGER_WEB_ACCESS_PASSWORD");
+        let _ = set_web_access_password(Some("persisted-secret"));
+
+        std::env::set_var("CODEXMANAGER_WEB_ACCESS_PASSWORD", "bootstrap-secret");
+        let seeded = seed_web_access_password_from_env().expect("skip seed when password exists");
+        assert!(!seeded);
+        assert!(verify_web_access_password("persisted-secret"));
+        assert!(!verify_web_access_password("bootstrap-secret"));
+
+        std::env::remove_var("CODEXMANAGER_WEB_ACCESS_PASSWORD");
+        let _ = set_web_access_password(None);
+    }
 }

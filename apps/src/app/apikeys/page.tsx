@@ -45,11 +45,6 @@ import { useAppStore } from "@/lib/store/useAppStore";
 import { copyTextToClipboard } from "@/lib/utils/clipboard";
 import { formatCompactNumber } from "@/lib/utils/usage";
 
-const ROTATION_STRATEGY_LABELS: Record<string, string> = {
-  account_rotation: "账号轮转",
-  aggregate_api_rotation: "聚合API轮转",
-};
-
 /**
  * 函数 `formatUsd`
  *
@@ -399,8 +394,6 @@ export default function ApiKeysPage() {
               <TableRow>
                 <TableHead>{t("密钥 / ID")}</TableHead>
                 <TableHead>{t("名称")}</TableHead>
-                <TableHead>{t("协议")}</TableHead>
-                <TableHead>{t("轮转策略")}</TableHead>
                 <TableHead>{t("绑定模型")}</TableHead>
                 <TableHead>{t("总使用 Token")}</TableHead>
                 <TableHead>{t("状态")}</TableHead>
@@ -415,8 +408,6 @@ export default function ApiKeysPage() {
                     <TableRow key={index}>
                       <TableCell><Skeleton className="h-4 w-32" /></TableCell>
                       <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-                      <TableCell><Skeleton className="h-4 w-20" /></TableCell>
-                      <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                       <TableCell><Skeleton className="h-4 w-28" /></TableCell>
                       <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                       <TableCell><Skeleton className="h-6 w-16 rounded-full" /></TableCell>
@@ -427,7 +418,7 @@ export default function ApiKeysPage() {
                 ))
               ) : apiKeys.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="h-48 text-center">
+                  <TableCell colSpan={6} className="h-48 text-center">
                     <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
                       <Plus className="h-8 w-8 opacity-20" />
                       <p>{t("创建密钥")}</p>
@@ -478,19 +469,6 @@ export default function ApiKeysPage() {
                         </div>
                       </TableCell>
                       <TableCell className="text-sm font-semibold">{key.name || t("未命名")}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="bg-accent/20 text-[10px] font-normal capitalize">
-                          {key.protocol.replace(/_/g, " ")}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="secondary" className="text-[10px] font-normal">
-                          {t(
-                            ROTATION_STRATEGY_LABELS[key.rotationStrategy] ||
-                              key.rotationStrategy,
-                          )}
-                        </Badge>
-                      </TableCell>
                       <TableCell className="text-xs font-medium text-muted-foreground">
                         {key.model ? (
                           key.model

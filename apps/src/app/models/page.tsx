@@ -176,7 +176,7 @@ export default function ModelsPage() {
       case "custom":
         return t("仅自定义");
       case "edited":
-        return t("仅本地覆写");
+        return t("仅已修改");
       default:
         return t("全部模型");
     }
@@ -224,18 +224,18 @@ export default function ModelsPage() {
             <div className="space-y-1">
               <h1 className="text-3xl font-semibold tracking-tight">{t("模型管理")}</h1>
               <p className="max-w-4xl text-sm leading-6 text-muted-foreground">
-                {t("这里维护本地结构化模型目录。默认绑定模型会优先展示 supportedInApi=true 的模型，而 Codex CLI 仍会拿到完整目录。")}
+                {t("这里维护结构化模型目录。默认绑定模型会优先展示 supportedInApi=true 的模型。")}
               </p>
             </div>
             <div className="flex flex-wrap gap-2 text-xs">
               <Badge variant="secondary" className="rounded-full px-3 py-1">
-                {t("完整目录会同步到 Codex CLI")}
+                {t("支持结构化目录维护")}
               </Badge>
               <Badge variant="secondary" className="rounded-full px-3 py-1">
                 {t("默认绑定优先展示 API 可用模型")}
               </Badge>
               <Badge variant="secondary" className="rounded-full px-3 py-1">
-                {t("远端刷新可与本地覆写共存")}
+                {t("远端刷新可与人工修改共存")}
               </Badge>
             </div>
           </div>
@@ -269,7 +269,7 @@ export default function ModelsPage() {
                       <Download
                         className={`mr-2 h-4 w-4 ${isExporting ? "animate-spin" : ""}`}
                       />
-                      {t("导出到本地 Codex 缓存")}
+                      {t("导出模型目录")}
                     </Button>
                   ) : null}
                   <Button
@@ -295,7 +295,7 @@ export default function ModelsPage() {
                 <MiniStatBadge label={t("模型总数")} value={`${stats.total}`} />
                 <MiniStatBadge label={t("API 可用")} value={`${stats.apiEnabled}`} />
                 <MiniStatBadge label={t("自定义模型")} value={`${stats.custom}`} />
-                <MiniStatBadge label={t("本地覆写")} value={`${stats.edited}`} />
+                <MiniStatBadge label={t("已修改")} value={`${stats.edited}`} />
                 <Badge variant="secondary" className="rounded-full px-3 py-1">
                   {t("当前筛选")} {currentFilterLabel}
                 </Badge>
@@ -326,12 +326,12 @@ export default function ModelsPage() {
                     <SelectItem value="all">{t("全部模型")}</SelectItem>
                     <SelectItem value="api">{t("仅 API 可用")}</SelectItem>
                     <SelectItem value="custom">{t("仅自定义")}</SelectItem>
-                    <SelectItem value="edited">{t("仅本地覆写")}</SelectItem>
+                    <SelectItem value="edited">{t("仅已修改")}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="text-xs text-muted-foreground">
-                {t("保存后会自动同步到 `~/.codex/models_cache.json`；如需让 `/model` 立即看到最新模型与说明，仍需重启正在运行中的 Codex 会话。Web 端可通过上方导出按钮下载同名 `models_cache.json`，再手动放入本地 `~/.codex/`；桌面端继续由本地自动同步。")}
+                {t("保存后会立即更新服务端模型目录；如需备份，可使用上方导出按钮下载当前目录内容。")}
               </div>
             </div>
           </CardHeader>
@@ -402,7 +402,7 @@ export default function ModelsPage() {
                               {model.sourceKind === "custom" ? t("自定义") : t("远端")}
                             </Badge>
                             {model.userEdited ? (
-                              <Badge className="bg-primary/10 text-primary">{t("已覆写")}</Badge>
+                              <Badge className="bg-primary/10 text-primary">{t("已修改")}</Badge>
                             ) : null}
                           </div>
                         </TableCell>
@@ -489,11 +489,11 @@ export default function ModelsPage() {
         description={
           deleteTargetCount > 1
             ? t(
-                "确定要删除选中的 {count} 个模型吗？如果后续执行远端刷新，远端模型可能会再次并入本地目录。",
+                "确定要删除选中的 {count} 个模型吗？如果后续执行远端刷新，远端模型可能会再次并入目录。",
                 { count: deleteTargetCount }
               )
             : singleDeleteSlug
-              ? t("确定要删除模型 {slug} 吗？如果后续执行远端刷新，远端模型可能会再次并入本地目录。", {
+              ? t("确定要删除模型 {slug} 吗？如果后续执行远端刷新，远端模型可能会再次并入目录。", {
                   slug: singleDeleteSlug,
                 })
               : ""

@@ -110,6 +110,9 @@ pub use auth::{
     verify_web_access_password, web_access_password_configured, web_auth_status_value,
 };
 pub use auth::{rpc_auth_token, rpc_auth_token_matches};
+pub use codexmanager_core::{
+    release_built_at, release_metadata, release_repository, release_tag,
+};
 pub use lifecycle::bootstrap::{initialize_storage_if_needed, portable};
 pub use lifecycle::shutdown::{clear_shutdown_flag, request_shutdown, shutdown_requested};
 pub use lifecycle::startup::{start_one_shot_server, start_server, ServerHandle};
