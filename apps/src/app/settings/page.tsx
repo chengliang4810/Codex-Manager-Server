@@ -110,6 +110,7 @@ export default function SettingsPage() {
   const { t } = useI18n();
   const setStoreSettings = useAppStore((state) => state.setAppSettings);
   const storedSettings = useAppStore((state) => state.appSettings);
+  const serviceConnected = useAppStore((state) => state.serviceStatus.connected);
   const { theme, setTheme } = useTheme();
   const queryClient = useQueryClient();
   const {
@@ -163,7 +164,7 @@ export default function SettingsPage() {
       normalizeWorkerRecommendation(
         await appClient.getGatewayConcurrencyRecommendation(),
       ),
-    enabled: isSnapshotQueryEnabled && isPageActive,
+    enabled: isSnapshotQueryEnabled && isPageActive && serviceConnected,
     staleTime: 60_000,
   });
   const deriveConcurrencyRecommendation = useMutation({
@@ -213,7 +214,7 @@ export default function SettingsPage() {
   const { data: fetchedSnapshot, isError: isSnapshotError } = useQuery({
     queryKey: ["app-settings-snapshot"],
     queryFn: () => appClient.getSettings(),
-    enabled: isSnapshotQueryEnabled && isPageActive,
+    enabled: isSnapshotQueryEnabled && isPageActive && serviceConnected,
   });
   const snapshot = fetchedSnapshot ?? storedSettings;
   const modelForwardRulesEditor =

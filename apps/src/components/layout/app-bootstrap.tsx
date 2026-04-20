@@ -201,13 +201,31 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
       setRuntimeCapabilities(detectedRuntimeCapabilities);
       const shouldBlockOnDashboardSnapshot =
         shouldBlockOnInitialDashboardSnapshot();
+      const fallbackAddr = getDefaultBrowserGatewayAddr();
+      const currentServiceStatus = serviceStatusRef.current;
+      const bootstrapAddr = normalizeServiceAddr(
+        currentServiceStatus.addr ||
+          appSettings.serviceAddr ||
+          fallbackAddr ||
+          DEFAULT_SERVICE_ADDR
+      );
+
+      if (
+        !currentServiceStatus.connected ||
+        currentServiceStatus.addr !== bootstrapAddr
+      ) {
+        setServiceStatus({ addr: bootstrapAddr, connected: false, version: "" });
+      }
+
+      await initializeService(bootstrapAddr, 1);
 
       const settings = await appClient.getSettings();
-      const fallbackAddr = getDefaultBrowserGatewayAddr();
       const addr = normalizeServiceAddr(
-        settings.serviceAddr || fallbackAddr || DEFAULT_SERVICE_ADDR
+        settings.serviceAddr || bootstrapAddr || fallbackAddr || DEFAULT_SERVICE_ADDR
       );
-      const currentServiceStatus = serviceStatusRef.current;
+      if (addr !== bootstrapAddr) {
+        await initializeService(addr, 1);
+      }
       
       const currentAppliedTheme = typeof document !== 'undefined' ? document.documentElement.getAttribute('data-theme') : null;
       if (settings.theme && settings.theme !== currentAppliedTheme) {
@@ -216,30 +234,20 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
       applyAppearancePreset(settings.appearancePreset);
       
       setAppSettings(settings);
-      
-      // CRITICAL: Do not reset status to connected: false if we are already connected
-      // This prevents the Header badge from flashing
-      if (!currentServiceStatus.connected || currentServiceStatus.addr !== addr) {
-        setServiceStatus({ addr, connected: false, version: "" });
-      }
-
-      try {
-        await initializeService(addr, 1);
-        await applyConnectedServiceState(
-          addr,
-          "",
-          settings.lowTransparency,
-          { blockOnDashboardSnapshot: shouldBlockOnDashboardSnapshot },
-        );
-      } catch (serviceError: unknown) {
-        if (!hasInitializedOnce.current) {
-           setServiceStatus({ addr, connected: false, version: "" });
-           setError(formatServiceError(serviceError));
-        }
-        setIsInitializing(false);
-      }
+      await applyConnectedServiceState(
+        addr,
+        "",
+        settings.lowTransparency,
+        { blockOnDashboardSnapshot: shouldBlockOnDashboardSnapshot },
+      );
     } catch (appError: unknown) {
       if (!hasInitializedOnce.current) {
+        const fallbackAddr = getDefaultBrowserGatewayAddr();
+        setServiceStatus({
+          addr: normalizeServiceAddr(fallbackAddr || DEFAULT_SERVICE_ADDR),
+          connected: false,
+          version: "",
+        });
         setError(appError instanceof Error ? appError.message : String(appError));
       }
       setIsInitializing(false);
@@ -254,6 +262,7 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
     setTheme,
     shouldBlockOnInitialDashboardSnapshot,
     t,
+    appSettings.serviceAddr,
   ]);
 
   const handleGuideOpenChange = useCallback((open: boolean) => {

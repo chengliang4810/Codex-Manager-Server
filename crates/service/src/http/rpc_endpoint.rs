@@ -4,9 +4,12 @@ use codexmanager_core::rpc::types::{
     JsonRpcError, JsonRpcErrorObject, JsonRpcMessage, JsonRpcRequest, JsonRpcResponse,
 };
 use std::panic::AssertUnwindSafe;
+use std::time::Instant;
 use tiny_http::Request;
 use tiny_http::Response;
 use url::Url;
+
+const RPC_SLOW_LOG_THRESHOLD_MS: u128 = 500;
 
 /// 函数 `rpc_response_failed`
 ///
@@ -130,6 +133,39 @@ fn jsonrpc_message_success(message: &JsonRpcMessage) -> bool {
     }
 }
 
+fn rpc_timing_log_enabled() -> bool {
+    std::env::var("CODEXMANAGER_RPC_TIMING_LOG")
+        .ok()
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn should_log_rpc_timing(duration_ms: u128) -> bool {
+    should_log_rpc_timing_with_flag(rpc_timing_log_enabled(), duration_ms)
+}
+
+fn should_log_rpc_timing_with_flag(logging_enabled: bool, duration_ms: u128) -> bool {
+    duration_ms >= RPC_SLOW_LOG_THRESHOLD_MS || logging_enabled
+}
+
+fn rpc_timing_log_line(method: &str, duration_ms: u128, success: bool, transport: &str) -> String {
+    format!(
+        "rpc timing: transport={} method={} duration_ms={} success={}",
+        transport, method, duration_ms, success
+    )
+}
+
+fn maybe_log_rpc_timing(method: &str, duration_ms: u128, success: bool, transport: &str) {
+    if should_log_rpc_timing(duration_ms) {
+        eprintln!("{}", rpc_timing_log_line(method, duration_ms, success, transport));
+    }
+}
+
 /// 函数 `handle_parsed_rpc_request`
 ///
 /// 作者: gaohongshun
@@ -142,12 +178,13 @@ fn jsonrpc_message_success(message: &JsonRpcMessage) -> bool {
 ///
 /// # 返回
 /// 返回函数执行结果
-fn handle_parsed_rpc_request<F>(req: JsonRpcRequest, handler: F) -> (String, bool)
+fn handle_parsed_rpc_request<F>(req: JsonRpcRequest, handler: F) -> (String, bool, String, u128)
 where
     F: FnOnce(JsonRpcRequest) -> JsonRpcMessage,
 {
     let request_id = req.id.clone();
     let request_method = req.method.clone();
+    let started_at = Instant::now();
     match std::panic::catch_unwind(AssertUnwindSafe(|| handler(req))) {
         Ok(message) => {
             let success = jsonrpc_message_success(&message);
@@ -155,7 +192,7 @@ where
                 JsonRpcMessage::Notification(_) => String::new(),
                 _ => serde_json::to_string(&message).unwrap_or_else(|_| "{}".to_string()),
             };
-            (json, success)
+            (json, success, request_method, started_at.elapsed().as_millis())
         }
         Err(payload) => {
             let panic_message = panic_payload_message(payload.as_ref());
@@ -174,7 +211,7 @@ where
                 },
             });
             let json = serde_json::to_string(&message).unwrap_or_else(|_| "{}".to_string());
-            (json, false)
+            (json, false, request_method, started_at.elapsed().as_millis())
         }
     }
 }
@@ -190,23 +227,23 @@ where
 ///
 /// # 返回
 /// 返回函数执行结果
-fn handle_rpc_body(body: &str) -> (u16, String, bool) {
+fn handle_rpc_body(body: &str) -> (u16, String, bool, Option<String>, u128) {
     if body.trim().is_empty() {
-        return (400, "{}".to_string(), false);
+        return (400, "{}".to_string(), false, None, 0);
     }
 
     let msg: JsonRpcMessage = match serde_json::from_str(body) {
         Ok(v) => v,
-        Err(_) => return (400, "{}".to_string(), false),
+        Err(_) => return (400, "{}".to_string(), false, None, 0),
     };
-    let (json, success) = match msg {
+    let (json, success, method, duration_ms) = match msg {
         JsonRpcMessage::Request(req) => handle_parsed_rpc_request(req, crate::handle_request),
-        JsonRpcMessage::Notification(_) => (String::new(), true),
+        JsonRpcMessage::Notification(_) => (String::new(), true, "notification".to_string(), 0),
         JsonRpcMessage::Response(_) | JsonRpcMessage::Error(_) => {
-            return (400, "{}".to_string(), false)
+            return (400, "{}".to_string(), false, None, 0)
         }
     };
-    (200, json, success)
+    (200, json, success, Some(method), duration_ms)
 }
 
 /// 函数 `is_axum_json_content_type`
@@ -298,7 +335,7 @@ pub(crate) async fn handle_rpc_http(headers: HeaderMap, body: String) -> AxumRes
         return response;
     }
     let body_for_task = body;
-    let (status, response_body, success) =
+    let (status, response_body, success, method, duration_ms) =
         match tokio::task::spawn_blocking(move || handle_rpc_body(&body_for_task)).await {
             Ok(result) => result,
             Err(err) => {
@@ -310,11 +347,14 @@ pub(crate) async fn handle_rpc_http(headers: HeaderMap, body: String) -> AxumRes
                     ),
                 };
                 let body = serde_json::to_string(&fallback).unwrap_or_else(|_| "{}".to_string());
-                (200, body, false)
+                (200, body, false, Some("rpc_task_failed".to_string()), 0)
             }
         };
     if success {
         rpc_metrics_guard.mark_success();
+    }
+    if let Some(method) = method.as_deref() {
+        maybe_log_rpc_timing(method, duration_ms, success, "axum");
     }
     (
         StatusCode::from_u16(status).unwrap_or(StatusCode::OK),
@@ -381,16 +421,21 @@ pub fn handle_rpc(mut request: Request) {
         return;
     }
 
-    let (status, response_body, success) = handle_rpc_body(&body);
+    let (status, response_body, success, method, duration_ms) = handle_rpc_body(&body);
     if success {
         rpc_metrics_guard.mark_success();
+    }
+    if let Some(method) = method.as_deref() {
+        maybe_log_rpc_timing(method, duration_ms, success, "tiny-http");
     }
     let _ = request.respond(Response::from_string(response_body).with_status_code(status));
 }
 
 #[cfg(test)]
 mod tests {
-    use super::handle_parsed_rpc_request;
+    use super::{
+        handle_parsed_rpc_request, rpc_timing_log_line, should_log_rpc_timing_with_flag,
+    };
     use codexmanager_core::rpc::types::{
         JsonRpcMessage, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse,
     };
@@ -415,11 +460,13 @@ mod tests {
             trace: None,
         };
 
-        let (body, success) = handle_parsed_rpc_request(request, |_req| {
+        let (body, success, method, duration_ms) = handle_parsed_rpc_request(request, |_req| {
             panic!("usage refresh boom");
         });
 
         assert!(!success);
+        assert_eq!(method, "account/usage/refresh");
+        assert!(duration_ms <= u128::MAX);
 
         let parsed: serde_json::Value = serde_json::from_str(&body).expect("json body");
         assert_eq!(parsed.get("id").and_then(|value| value.as_u64()), Some(7));
@@ -459,7 +506,7 @@ mod tests {
             trace: None,
         };
 
-        let (body, success) = handle_parsed_rpc_request(request, |req| {
+        let (body, success, method, duration_ms) = handle_parsed_rpc_request(request, |req| {
             JsonRpcMessage::Response(JsonRpcResponse {
                 id: req.id,
                 result: serde_json::json!({ "ok": true }),
@@ -467,6 +514,8 @@ mod tests {
         });
 
         assert!(success);
+        assert_eq!(method, "noop");
+        assert!(duration_ms <= u128::MAX);
         let parsed: serde_json::Value = serde_json::from_str(&body).expect("json body");
         assert_eq!(parsed.get("id").and_then(|value| value.as_u64()), Some(9));
         assert_eq!(
@@ -498,7 +547,7 @@ mod tests {
             trace: None,
         };
 
-        let (body, success) = handle_parsed_rpc_request(request, |_req| {
+        let (body, success, method, duration_ms) = handle_parsed_rpc_request(request, |_req| {
             JsonRpcMessage::Notification(JsonRpcNotification {
                 method: "initialized".to_string(),
                 params: None,
@@ -506,6 +555,24 @@ mod tests {
         });
 
         assert!(success);
+        assert_eq!(method, "noop");
+        assert!(duration_ms <= u128::MAX);
         assert!(body.is_empty());
+    }
+
+    #[test]
+    fn rpc_timing_log_message_includes_method_duration_and_transport() {
+        let line = rpc_timing_log_line("appSettings/get", 3790, true, "axum");
+        assert!(line.contains("transport=axum"));
+        assert!(line.contains("method=appSettings/get"));
+        assert!(line.contains("duration_ms=3790"));
+        assert!(line.contains("success=true"));
+    }
+
+    #[test]
+    fn slow_rpc_timing_threshold_logs_from_500ms() {
+        assert!(!should_log_rpc_timing_with_flag(false, 499));
+        assert!(should_log_rpc_timing_with_flag(false, 500));
+        assert!(should_log_rpc_timing_with_flag(true, 1));
     }
 }
