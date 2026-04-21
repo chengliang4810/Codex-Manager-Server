@@ -2,7 +2,6 @@
 **/node_modules
 **/.next
 apps/dist
-apps/out
 apps/.vite
 apps/.turbo
 *.tsbuildinfo

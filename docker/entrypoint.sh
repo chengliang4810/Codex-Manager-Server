@@ -71,7 +71,9 @@ if [ "$(id -u)" = "0" ]; then
   exec gosu "${APP_UID}:${APP_UID}" "$0" "$@"
 fi
 
-if [ "${CODEXMANAGER_SINGLE_CONTAINER:-}" = "1" ] && [ "${1:-}" = "codexmanager-web" ]; then
+cmd_name="${1##*/}"
+
+if [ "${CODEXMANAGER_SINGLE_CONTAINER:-}" = "1" ] && [ "${cmd_name:-}" = "codexmanager-web" ]; then
   export CODEXMANAGER_SERVICE_ADDR="${CODEXMANAGER_SERVICE_ADDR:-127.0.0.1:48760}"
   export CODEXMANAGER_WEB_NO_SPAWN_SERVICE=1
 
