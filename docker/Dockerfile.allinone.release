@@ -25,12 +25,15 @@ COPY docker/entrypoint.sh /usr/local/bin/codexmanager-entrypoint.sh
 RUN printf '{\n  "version": "%s",\n  "releaseTag": "%s",\n  "repository": "%s",\n  "builtAt": "%s"\n}\n' \
       "$RELEASE_VERSION" "$RELEASE_TAG" "$RELEASE_REPOSITORY" "$RELEASE_BUILT_AT" \
       > /app/version.json \
+    && sed -i 's/\r$//' /usr/local/bin/codexmanager-entrypoint.sh \
     && chown ${APP_UID}:${APP_UID} /app/bin/codexmanager-service /app/bin/codexmanager-web \
     && chmod +x /app/bin/codexmanager-service /app/bin/codexmanager-web /usr/local/bin/codexmanager-entrypoint.sh
 
 ENV APP_USER=${APP_USER}
 ENV APP_UID=${APP_UID}
 ENV PATH=/app/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ENV CODEXMANAGER_SERVICE_BIN=/app/bin/codexmanager-service
+ENV CODEXMANAGER_WEB_BIN=/app/bin/codexmanager-web
 ENV CODEXMANAGER_SINGLE_CONTAINER=1
 ENV CODEXMANAGER_WEB_ADDR=0.0.0.0:48761
 ENV CODEXMANAGER_SERVICE_ADDR=127.0.0.1:48760
@@ -46,4 +49,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:48761/__auth_status || exit 1
 
 ENTRYPOINT ["codexmanager-entrypoint.sh"]
-CMD ["codexmanager-web"]
+CMD ["/app/bin/codexmanager-web"]

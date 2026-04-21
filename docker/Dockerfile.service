@@ -43,6 +43,7 @@ COPY docker/entrypoint.sh /usr/local/bin/codexmanager-entrypoint.sh
 RUN printf '{\n  "version": "%s",\n  "releaseTag": "%s",\n  "repository": "%s",\n  "builtAt": "%s"\n}\n' \
       "$RELEASE_VERSION" "$RELEASE_TAG" "$RELEASE_REPOSITORY" "$RELEASE_BUILT_AT" \
       > /app/version.json \
+    && sed -i 's/\r$//' /usr/local/bin/codexmanager-entrypoint.sh \
     && chmod +x /usr/local/bin/codexmanager-entrypoint.sh
 
 ENV APP_USER=${APP_USER}

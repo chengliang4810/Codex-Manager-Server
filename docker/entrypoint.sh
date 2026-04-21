@@ -3,6 +3,8 @@ set -eu
 
 APP_UID="${APP_UID:-10001}"
 APP_USER="${APP_USER:-codexmanager}"
+SERVICE_BIN="${CODEXMANAGER_SERVICE_BIN:-/app/bin/codexmanager-service}"
+WEB_BIN="${CODEXMANAGER_WEB_BIN:-/app/bin/codexmanager-web}"
 
 resolve_managed_path() {
   input_path="$1"
@@ -75,7 +77,18 @@ if [ "${CODEXMANAGER_SINGLE_CONTAINER:-}" = "1" ] && [ "${1:-}" = "codexmanager-
 
   service_port="${CODEXMANAGER_SERVICE_ADDR##*:}"
 
-  codexmanager-service &
+  if [ ! -x "$SERVICE_BIN" ]; then
+    echo "codexmanager-service binary missing or not executable: $SERVICE_BIN" >&2
+    ls -la /app/bin >&2 || true
+    exit 1
+  fi
+  if [ ! -x "$WEB_BIN" ]; then
+    echo "codexmanager-web binary missing or not executable: $WEB_BIN" >&2
+    ls -la /app/bin >&2 || true
+    exit 1
+  fi
+
+  "$SERVICE_BIN" &
   service_pid=$!
 
   if ! wait_for_service_health "$service_port" "$service_pid"; then
@@ -84,7 +97,8 @@ if [ "${CODEXMANAGER_SINGLE_CONTAINER:-}" = "1" ] && [ "${1:-}" = "codexmanager-
     exit 1
   fi
 
-  "$@" &
+  shift
+  "$WEB_BIN" "$@" &
   web_pid=$!
 
   trap 'stop_background_pid "$web_pid"; stop_background_pid "$service_pid"; exit 143' TERM INT HUP
